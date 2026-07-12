@@ -431,10 +431,10 @@ function FamilyFinance({ onChangePassword }) {
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <button onClick={exportData} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
-              <Download className="w-4 h-4" /> 导出
+              <Upload className="w-4 h-4" /> 导出
             </button>
             <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
-              <Upload className="w-4 h-4" /> 导入
+              <Download className="w-4 h-4" /> 导入
             </button>
             <button onClick={() => setResetOpen(true)} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
               <Power className="w-4 h-4" /> 重置
