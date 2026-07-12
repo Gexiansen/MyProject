@@ -943,6 +943,7 @@ function Field({ label, children }) {
 function Closing({ accounts, setAccounts, records, setRecords, series }) {
   const months = Object.keys(records).sort();
   const [sel, setSel] = useState(months[months.length - 1]);
+  const [deleteMonth, setDeleteMonth] = useState(null);
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
@@ -953,7 +954,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
     const value = v === '' ? '' : (Number(v) || 0);
     setRecords((prev) => ({ ...prev, [sel]: { ...prev[sel], [id]: value } }));
     const account = accounts.find((a) => a.id === id);
-    if (account?.type === 'expense' && account.isFixed) {
+    if (account?.type === 'expense' && account.isFixed && sel === months[months.length - 1]) {
       setAccounts((prev) => prev.map((a) => a.id === id ? { ...a, fixedAmount: value === '' ? 0 : value } : a));
     }
   };
@@ -985,6 +986,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
       const remain = Object.keys(records).filter((x) => x !== m).sort();
       setSel(remain[remain.length - 1]);
     }
+    setDeleteMonth(null);
   };
 
   const groups = [
@@ -1033,6 +1035,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
             return (
               <div key={g.type} className="bg-white rounded-xl p-4 border border-slate-200">
                 <div className="font-semibold mb-2">{g.title}</div>
+                {g.type === 'expense' && <p className="text-xs text-slate-400 mb-2">
+                  {sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
+                </p>}
                 <div className="space-y-2">
                   {rows.map((a) => (
                     <div key={a.id} className="flex items-center gap-3">
@@ -1074,7 +1079,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
                   <td className="px-3 py-2 text-right text-emerald-600">{wanSign(s.saved)}</td>
                   <td className={`px-3 py-2 text-right ${(s.market || 0) >= 0 ? 'text-amber-600' : 'text-rose-500'}`}>{s.netChange == null ? '-' : wanSign(s.market)}</td>
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => delMonth(s.month)} className="text-slate-300 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setDeleteMonth(s.month)} className="text-slate-300 hover:text-rose-500" title={`删除 ${s.month}`}><Trash2 className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
@@ -1082,6 +1087,22 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
           </table>
         </div>
       </div>
+      {deleteMonth && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="w-5 h-5 text-rose-600" />
+              <h3 className="font-semibold">删除月度记录</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-2">确定删除 <span className="font-medium">{deleteMonth}</span> 的全部结账数据吗？</p>
+            <p className="text-xs text-rose-600 bg-rose-50 rounded-lg p-2.5 mb-4">删除后，该月份将从净资产趋势、年度统计和历史记录中移除，且无法恢复。</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeleteMonth(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+              <button onClick={() => delMonth(deleteMonth)} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1212,6 +1233,10 @@ function PasswordGate() {
   const [unlocked, setUnlocked] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const hasCustomPassword = (() => {
+    try { return Boolean(localStorage.getItem(PASSWORD_KEY)); }
+    catch { return false; }
+  })();
 
   const getPassword = () => {
     try { return localStorage.getItem(PASSWORD_KEY) || DEFAULT_PASSWORD; }
@@ -1247,7 +1272,8 @@ function PasswordGate() {
           aria-label="6位数字密码" />
         {error && <p className="text-sm text-rose-600 text-center mt-2">{error}</p>}
         <button onClick={unlock} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2.5 font-medium">打开</button>
-        <p className="text-xs text-slate-400 text-center mt-3">默认密码：123456</p>
+        {!hasCustomPassword && <p className="text-xs text-slate-400 text-center mt-3">首次使用默认密码：123456</p>}
+        <p className="text-xs text-slate-400 text-center mt-2">这是本机页面锁，不会加密浏览器中保存的财务数据。</p>
       </div>
     </div>
   );
@@ -1277,6 +1303,7 @@ function PasswordModal({ onSave, onClose }) {
           <Field label="再次输入新密码"><input type="password" inputMode="numeric" maxLength="6" value={confirmPassword} onChange={(e) => { setConfirmPassword(clean(e.target.value)); setError(''); }} className="w-full border border-slate-200 rounded-lg px-3 py-2" /></Field>
         </div>
         {error && <p className="text-sm text-rose-600 mt-3">{error}</p>}
+        <p className="text-xs text-slate-400 mt-3">密码仅保存在当前浏览器。清除浏览器数据会同时清除密码和财务数据，请定期导出备份。</p>
         <button onClick={submit} className="w-full mt-4 bg-indigo-600 text-white rounded-lg py-2.5 font-medium">保存新密码</button>
       </div>
     </div>
