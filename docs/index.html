@@ -525,8 +525,13 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
     环比比例: s.netChange == null || s.nw - s.netChange === 0 ? null : s.netChange / (s.nw - s.netChange),
   }));
   const cashTrend = chartData.map((s) => ({
-    month: s.label, 收入: +(s.inc / 10000).toFixed(1), 支出: +(s.exp / 10000).toFixed(1), 结余: +(s.saved / 10000).toFixed(1),
+    month: s.label,
+    收入: +(s.inc / 10000).toFixed(1), 支出: +(s.exp / 10000).toFixed(1), 结余: +(s.saved / 10000).toFixed(1),
+    收入金额: s.inc, 支出金额: s.exp, 结余金额: s.saved, 储蓄率: s.inc ? s.saved / s.inc : null,
   }));
+  const cashTotals = chartData.reduce((sum, s) => ({ income: sum.income + s.inc, expense: sum.expense + s.exp, saved: sum.saved + s.saved }), { income: 0, expense: 0, saved: 0 });
+  const cashMonthCount = chartData.length || 1;
+  const periodSavingsRate = cashTotals.income ? cashTotals.saved / cashTotals.income : null;
   const growthTrend = chartData.map((s) => ({
     month: s.label, 攒的: +(s.saved / 10000).toFixed(1), 市场给的: +(s.market / 10000).toFixed(1),
   }));
@@ -670,24 +675,31 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-1">收入、支出与结余趋势（万元）</div>
-        <p className="text-xs text-slate-400 mb-2">红色圆点表示当月支出超过收入</p>
+        <div className="font-semibold mb-2">收入、支出与结余趋势（万元）</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-center">
+          <MiniStat label="平均月收入" value={fmtWan(cashTotals.income / cashMonthCount)} c="text-emerald-600" />
+          <MiniStat label="平均月支出" value={fmtWan(cashTotals.expense / cashMonthCount)} c="text-amber-600" />
+          <MiniStat label="平均月结余" value={fmtWan(cashTotals.saved / cashMonthCount)} c={cashTotals.saved >= 0 ? 'text-indigo-600' : 'text-rose-600'} />
+          <MiniStat label="区间储蓄率" value={periodSavingsRate == null ? '—' : (periodSavingsRate * 100).toFixed(1) + '%'} c={periodSavingsRate == null || periodSavingsRate >= 0 ? 'text-indigo-600' : 'text-rose-600'} />
+        </div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={cashTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 11 }} width={38} />
-              <Tooltip formatter={(v) => v + '万'} />
+              <Tooltip content={<CashflowTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
               <ReferenceLine y={0} stroke="#cbd5e1" />
-              <Bar dataKey="收入" fill="#10b981" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="支出" fill="#f59e0b" radius={[3, 3, 0, 0]} />
-              <Line type="monotone" dataKey="结余" stroke="#6366f1" strokeWidth={2}
-                dot={({ cx, cy, payload }) => <circle cx={cx} cy={cy} r={3} fill={payload.结余 < 0 ? '#e11d48' : '#6366f1'} />} />
+              <Bar dataKey="结余" name="结余" radius={[3, 3, 0, 0]}>
+                {cashTrend.map((d, i) => <Cell key={i} fill={d.结余 >= 0 ? '#6366f1' : '#e11d48'} />)}
+              </Bar>
+              <Line type="monotone" dataKey="收入" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line type="monotone" dataKey="支出" stroke="#f59e0b" strokeWidth={2} dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        <p className="text-xs text-slate-400 mt-1">结余柱向上表示有结余，红色向下表示支出超过收入；区间储蓄率按总结余 ÷ 总收入计算。</p>
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -804,6 +816,17 @@ function NetWorthTooltip({ active, payload, label }) {
     { label: '总负债', value: d.负债 + '万', className: 'text-rose-600' },
     { label: '环比变化', value: d.环比金额 == null ? '—' : `${d.环比金额 >= 0 ? '+' : ''}${d.环比金额}万` },
     { label: '环比比例', value: d.环比比例 == null ? '—' : pctSign(d.环比比例) },
+  ]} />;
+}
+
+function CashflowTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0].payload;
+  return <ChartTooltipBox title={label} rows={[
+    { label: '收入', value: fmtYuan(d.收入金额), className: 'text-emerald-600' },
+    { label: '支出', value: fmtYuan(d.支出金额), className: 'text-amber-600' },
+    { label: '结余', value: fmtYuan(d.结余金额), className: d.结余金额 >= 0 ? 'text-indigo-600' : 'text-rose-600' },
+    { label: '储蓄率', value: d.储蓄率 == null ? '收入为0，无法计算' : (d.储蓄率 * 100).toFixed(1) + '%', className: 'font-medium text-indigo-600' },
   ]} />;
 }
 
