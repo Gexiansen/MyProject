@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="家庭财务">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
+<title>家庭财务</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin: 0; -webkit-tap-highlight-color: transparent; }
+  body { padding-bottom: env(safe-area-inset-bottom); }
+  header { padding-top: env(safe-area-inset-top); }
+</style>
+</head>
+<body class="bg-slate-100">
+<div id="root" class="min-h-screen"></div>
+
+<script type="text/babel">
+const { useState, useMemo, useRef, useEffect } = React;
+const {
+  PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ComposedChart, Line, LineChart,
+  Area, AreaChart, Legend, ReferenceLine
+} = Recharts;
+
+// ---------- 内联图标（替代 lucide-react，保证真机可靠渲染） ----------
+function icon(shapes) {
+  return function ({ className, ...rest }) {
+    return React.createElement('svg', {
+      className, xmlns: 'http://www.w3.org/2000/svg', width: 24, height: 24,
+      viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+      strokeLinecap: 'round', strokeLinejoin: 'round', ...rest
+    }, shapes.map((s, i) => React.createElement(s[0], { key: i, ...s[1] })));
+  };
+}
+const Wallet = icon([['path',{d:'M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4'}],['path',{d:'M4 6v12c0 1.1.9 2 2 2h14v-4'}],['path',{d:'M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z'}]]);
+const TrendingUp = icon([['polyline',{points:'22 7 13.5 15.5 8.5 10.5 2 17'}],['polyline',{points:'16 7 22 7 22 13'}]]);
+const PiggyBank = icon([['path',{d:'M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8.7 3.2 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5z'}],['path',{d:'M2 9v1c0 1.1.9 2 2 2h1'}],['path',{d:'M16 11h.01'}]]);
+const Target = icon([['circle',{cx:12,cy:12,r:10}],['circle',{cx:12,cy:12,r:6}],['circle',{cx:12,cy:12,r:2}]]);
+const PlusCircle = icon([['circle',{cx:12,cy:12,r:10}],['path',{d:'M8 12h8'}],['path',{d:'M12 8v8'}]]);
+const Trash2 = icon([['path',{d:'M3 6h18'}],['path',{d:'M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'}],['path',{d:'M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'}],['line',{x1:10,x2:10,y1:11,y2:17}],['line',{x1:14,x2:14,y1:11,y2:17}]]);
+const Pencil = icon([['path',{d:'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z'}],['path',{d:'m15 5 4 4'}]]);
+const Download = icon([['path',{d:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'}],['polyline',{points:'7 10 12 15 17 10'}],['line',{x1:12,x2:12,y1:15,y2:3}]]);
+const Upload = icon([['path',{d:'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4'}],['polyline',{points:'17 8 12 3 7 8'}],['line',{x1:12,x2:12,y1:3,y2:15}]]);
+const ChevronLeft = icon([['path',{d:'m15 18-6-6 6-6'}]]);
+const ChevronDown = icon([['path',{d:'m6 9 6 6 6-6'}]]);
+const Home = icon([['path',{d:'m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'}],['polyline',{points:'9 22 9 12 15 12 15 22'}]]);
+const ListChecks = icon([['path',{d:'m3 17 2 2 4-4'}],['path',{d:'m3 7 2 2 4-4'}],['path',{d:'M13 6h8'}],['path',{d:'M13 12h8'}],['path',{d:'M13 18h8'}]]);
+const CalendarClock = icon([['path',{d:'M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h3.5'}],['path',{d:'M16 2v4'}],['path',{d:'M8 2v4'}],['path',{d:'M3 10h5'}],['circle',{cx:16,cy:16,r:6}],['path',{d:'M16.5 14v1.7l1 .9'}]]);
+const BarChart3 = icon([['path',{d:'M3 3v18h18'}],['path',{d:'M18 17V9'}],['path',{d:'M13 17V5'}],['path',{d:'M8 17v-3'}]]);
+const X = icon([['path',{d:'M18 6 6 18'}],['path',{d:'m6 6 12 12'}]]);
+const AlertTriangle = icon([['path',{d:'m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'}],['path',{d:'M12 9v4'}],['path',{d:'M12 17h.01'}]]);
+const Power = icon([['path',{d:'M12 2v10'}],['path',{d:'M18.36 6.64a9 9 0 1 1-12.73 0'}]]);
+const Percent = icon([['line',{x1:19,x2:5,y1:5,y2:19}],['circle',{cx:6.5,cy:6.5,r:2.5}],['circle',{cx:17.5,cy:17.5,r:2.5}]]);
+const Info = icon([['circle',{cx:12,cy:12,r:10}],['path',{d:'M12 16v-4'}],['path',{d:'M12 8h.01'}]]);
+
+// ---------- 工具 ----------
+const CATS = { cash: '现金', investment: '投资', fixed: '固定资产' };
+const MEMBERS = ['共同', '老公', '老婆'];
+const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
+
+const fmtWan = (v) => (v == null ? '-' : (v / 10000).toFixed(1) + '万');
+const wanSign = (v) => (v == null ? '-' : (v >= 0 ? '+' : '') + (v / 10000).toFixed(1) + '万');
+const pctSign = (v) => (v == null ? '-' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%');
+const fmtYuan = (v) => '¥' + Math.round(v).toLocaleString('zh-CN');
+const isActive = (a) => a.active !== false;
+
+function makeRng(seed) {
+  let s = seed;
+  return () => { s = (s * 1664525 + 1013904223) % 4294967296; return s / 4294967296; };
+}
+function nextMonth(key) {
+  let [y, m] = key.split('-').map(Number);
+  m += 1; if (m > 12) { m = 1; y += 1; }
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+// ---------- 本地存储：自动保存 / 读取 ----------
+const STORAGE_KEY = 'family-finance-v1';
+function loadSaved() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (obj && obj.accounts && obj.records) return obj;
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// ---------- 演示数据 ----------
+function buildDemo() {
+  const accounts = [
+    { id: 'a_cash1', name: '招商银行活期', type: 'asset', category: 'cash', member: '共同', active: true },
+    { id: 'a_cash2', name: '余额宝', type: 'asset', category: 'cash', member: '老婆', active: true },
+    { id: 'a_xpeng', name: '小鹏股票', type: 'asset', category: 'investment', member: '老公', active: true },
+    { id: 'a_index', name: '指数基金定投', type: 'asset', category: 'investment', member: '共同', active: true },
+    { id: 'a_house', name: '自住房', type: 'asset', category: 'fixed', member: '共同', active: true },
+    { id: 'l_mortgage', name: '房贷', type: 'liability', member: '共同', active: true },
+    { id: 'l_card', name: '信用卡', type: 'liability', member: '老公', active: true },
+    { id: 'i_husband', name: '老公工资', type: 'income', member: '老公', active: true },
+    { id: 'i_wife', name: '老婆工资', type: 'income', member: '老婆', active: true },
+    { id: 'e_mortgage', name: '房贷月供', type: 'expense', isFixed: true, fixedAmount: 10000, member: '共同', active: true },
+    { id: 'e_property', name: '物业+车位', type: 'expense', isFixed: true, fixedAmount: 800, member: '共同', active: true },
+    { id: 'e_edu', name: '孩子教育', type: 'expense', isFixed: true, fixedAmount: 3000, member: '共同', active: true },
+    { id: 'e_daily', name: '日常开销', type: 'expense', isFixed: false, fixedAmount: 0, member: '共同', active: true },
+  ];
+
+  const rng = makeRng(20240115);
+  const months = [];
+  let d = new Date(2024, 0, 1);
+  for (let i = 0; i < 30; i++) {
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    d.setMonth(d.getMonth() + 1);
+  }
+
+  let cash1 = 80000, cash2 = 40000, xpeng = 120000, index = 60000;
+  let house = 2000000, mortgage = 1500000;
+  const records = {};
+
+  months.forEach((m, i) => {
+    const monthNum = Number(m.split('-')[1]);
+    const bonus = monthNum === 12 ? 60000 : 0;
+    const husband = 20000 + bonus + Math.round((rng() - 0.5) * 2000);
+    const wife = 15000 + Math.round((rng() - 0.5) * 1500);
+    const daily = 8000 + Math.round(rng() * 6000);
+    const mortgagePay = 10000, property = 800, edu = 3000;
+    const totalIncome = husband + wife;
+    const totalExpense = mortgagePay + property + edu + daily;
+    const saved = totalIncome - totalExpense;
+
+    index = index * (1 + (rng() - 0.48) * 0.05) + 5000;
+    if (i % 3 === 0) xpeng += 20000;
+    xpeng = xpeng * (1 + (rng() - 0.45) * 0.12);
+    cash1 += saved - 5000 - (i % 3 === 0 ? 20000 : 0);
+    if (cash1 < 20000) cash1 = 20000 + rng() * 10000;
+    cash2 = cash2 * 1.002;
+    house = house * 1.0008;
+    mortgage -= 4000;
+    const card = Math.round(rng() * 14000);
+
+    records[m] = {
+      a_cash1: Math.round(cash1),
+      a_cash2: Math.round(cash2),
+      a_xpeng: Math.round(xpeng),
+      a_index: Math.round(index),
+      a_house: Math.round(house),
+      l_mortgage: Math.round(mortgage),
+      l_card: card,
+      i_husband: husband,
+      i_wife: wife,
+      e_mortgage: mortgagePay,
+      e_property: property,
+      e_edu: edu,
+      e_daily: daily,
+    };
+  });
+
+  return { accounts, records };
+}
+
+// ---------- 主组件 ----------
+function FamilyFinance() {
+  const demo = useMemo(buildDemo, []);
+  const saved = useMemo(loadSaved, []);
+
+  const [accounts, setAccounts] = useState(() =>
+    saved ? saved.accounts.map((a) => ({ ...a, active: a.active !== false })) : demo.accounts.map((a) => ({ ...a }))
+  );
+  const [records, setRecords] = useState(() => saved ? saved.records : { ...demo.records });
+  const [withdrawalRate, setWithdrawalRate] = useState(() => (saved && saved.withdrawalRate) ? saved.withdrawalRate : 4);
+  const [tab, setTab] = useState('overview');
+  const [range, setRange] = useState('1y');
+  const [savedFlag, setSavedFlag] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const fileRef = useRef(null);
+
+  // ----- 自动保存到 localStorage -----
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ accounts, records, withdrawalRate }));
+      setSavedFlag(true);
+      const t = setTimeout(() => setSavedFlag(false), 1500);
+      return () => clearTimeout(t);
+    } catch (e) { /* ignore */ }
+  }, [accounts, records, withdrawalRate]);
+
+  // ----- 计算月度序列（含全部账户，保证历史不因停用而改变） -----
+  const series = useMemo(() => {
+    const sorted = Object.keys(records).sort();
+    const out = [];
+    let prevNW = null;
+    sorted.forEach((m) => {
+      const rec = records[m] || {};
+      let assets = 0, liab = 0, inc = 0, exp = 0, invest = 0, cash = 0, fixed = 0;
+      let topInv = 0, topInvName = '';
+      accounts.forEach((a) => {
+        let v = rec[a.id];
+        if (v == null) v = (a.type === 'expense' && a.isFixed && isActive(a)) ? a.fixedAmount : 0;
+        v = Number(v) || 0;
+        if (a.type === 'asset') {
+          assets += v;
+          if (a.category === 'investment') { invest += v; if (v > topInv) { topInv = v; topInvName = a.name; } }
+          else if (a.category === 'cash') cash += v;
+          else fixed += v;
+        } else if (a.type === 'liability') liab += v;
+        else if (a.type === 'income') inc += v;
+        else if (a.type === 'expense') exp += v;
+      });
+      const nw = assets - liab;
+      const saved = inc - exp;
+      const market = prevNW == null ? 0 : nw - prevNW - saved;
+      const netChange = prevNW == null ? null : nw - prevNW;
+      out.push({
+        month: m, label: m.slice(2), assets, liab, nw, inc, exp, saved, market, netChange,
+        invest, cash, fixed, concentration: invest > 0 ? topInv / invest : 0, topInvName,
+      });
+      prevNW = nw;
+    });
+    return out;
+  }, [accounts, records]);
+
+  const latest = series[series.length - 1];
+
+  const chartData = useMemo(() => {
+    if (range === 'all' || !latest) return series;
+    return series.slice(-12);
+  }, [series, range, latest]);
+
+  // ----- FIRE（分母不含自住房） -----
+  const fire = useMemo(() => {
+    if (!latest) return { progress: 0, passive: 0, annualExp: 0, target: 0, years: null, invest: 0 };
+    const last12 = series.slice(-12);
+    const avgExp = last12.reduce((s, x) => s + x.exp, 0) / last12.length;
+    const avgSaved = last12.reduce((s, x) => s + x.saved, 0) / last12.length;
+    const annualExp = avgExp * 12;
+    const annualSaved = avgSaved * 12;
+    const rate = withdrawalRate / 100;
+    const invest = latest.invest;
+    const passive = invest * rate;
+    const target = rate > 0 ? annualExp / rate : 0;
+    const progress = annualExp ? passive / annualExp : 0;
+    const years = target <= invest ? 0 : (annualSaved > 0 ? (target - invest) / annualSaved : null);
+    return { progress, passive, annualExp, annualSaved, target, years, invest };
+  }, [series, latest, withdrawalRate]);
+
+  // ----- 下月现金流预测 -----
+  const cashflow = useMemo(() => {
+    const last3 = series.slice(-3);
+    const predIncome = last3.length ? last3.reduce((s, x) => s + x.inc, 0) / last3.length : 0;
+    const fixedExp = accounts
+      .filter((a) => a.type === 'expense' && a.isFixed && isActive(a))
+      .reduce((s, a) => s + (Number(a.fixedAmount) || 0), 0);
+    return { predIncome, fixedExp, disposable: predIncome - fixedExp };
+  }, [series, accounts]);
+
+  // ----- 年度小结 -----
+  const annual = useMemo(() => {
+    const byYear = {};
+    series.forEach((s) => { const y = s.month.slice(0, 4); (byYear[y] = byYear[y] || []).push(s); });
+    const years = Object.keys(byYear).sort();
+    let prevEnd = null;
+    return years.map((y) => {
+      const arr = byYear[y];
+      const last = arr[arr.length - 1];
+      const savedSum = arr.reduce((s, x) => s + x.saved, 0);
+      const marketSum = arr.reduce((s, x) => s + x.market, 0);
+      const incSum = arr.reduce((s, x) => s + x.inc, 0);
+      const expSum = arr.reduce((s, x) => s + x.exp, 0);
+      const prevNW = prevEnd ? prevEnd.nw : null;
+      const prevLiab = prevEnd ? prevEnd.liab : arr[0].liab;
+      const res = {
+        year: y, netWorth: last.nw, saved: savedSum, market: marketSum, growth: savedSum + marketSum,
+        income: incSum, expenses: expSum, savingsRate: incSum ? savedSum / incSum : 0,
+        totalAssets: last.assets, liabilities: last.liab, debtReduced: prevLiab - last.liab,
+        concentration: last.concentration,
+        yoyAbs: prevNW != null ? last.nw - prevNW : null,
+        yoyPct: prevNW ? (last.nw - prevNW) / prevNW : null,
+      };
+      prevEnd = last;
+      return res;
+    });
+  }, [series]);
+
+  // ----- 导入 / 导出 -----
+  const exportData = () => {
+    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate }, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `family-finance-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const importData = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const obj = JSON.parse(reader.result);
+        if (obj.accounts) setAccounts(obj.accounts.map((a) => ({ ...a, active: a.active !== false })));
+        if (obj.records) setRecords(obj.records);
+        if (obj.withdrawalRate) setWithdrawalRate(obj.withdrawalRate);
+      } catch { /* ignore */ }
+    };
+    reader.readAsText(f);
+    e.target.value = '';
+  };
+
+  // ----- 重置 -----
+  const restoreDemo = () => {
+    setAccounts(demo.accounts.map((a) => ({ ...a })));
+    setRecords({ ...demo.records });
+    setWithdrawalRate(4);
+    setResetOpen(false);
+    setTab('overview');
+  };
+  const clearAll = () => {
+    setAccounts([]);
+    setRecords({});
+    setResetOpen(false);
+    setTab('accounts');
+  };
+
+  const tabs = [
+    { key: 'overview', label: '总览', icon: Home },
+    { key: 'accounts', label: '账户管理', icon: ListChecks },
+    { key: 'closing', label: '月度结账', icon: CalendarClock },
+    { key: 'annual', label: '年度小结', icon: BarChart3 },
+  ];
+
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-800">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <PiggyBank className="w-6 h-6 text-indigo-600" />
+            <h1 className="font-bold text-lg">家庭财务</h1>
+            {savedFlag && <span className="text-xs text-emerald-600 ml-1">已保存 ✓</span>}
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={exportData} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
+              <Download className="w-4 h-4" /> 导出
+            </button>
+            <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
+              <Upload className="w-4 h-4" /> 导入
+            </button>
+            <button onClick={() => setResetOpen(true)} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
+              <Power className="w-4 h-4" /> 重置
+            </button>
+            <input ref={fileRef} type="file" accept=".json,application/json" onChange={importData} className="hidden" />
+          </div>
+        </div>
+        <div className="max-w-4xl mx-auto px-2 flex gap-1 overflow-x-auto">
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`flex items-center gap-1 px-3 py-2 text-sm whitespace-nowrap border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
+                <Icon className="w-4 h-4" /> {t.label}
+              </button>
+            );
+          })}
+        </div>
+      </header>
+
+      <main className="max-w-4xl mx-auto px-4 py-4 pb-16">
+        {tab === 'overview' && (
+          <Overview latest={latest} chartData={chartData} fire={fire} cashflow={cashflow}
+            withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
+            accounts={accounts} records={records} range={range} setRange={setRange} />
+        )}
+        {tab === 'accounts' && (
+          <Accounts accounts={accounts} setAccounts={setAccounts} setRecords={setRecords}
+            latest={latest} records={records} />
+        )}
+        {tab === 'closing' && (
+          <Closing accounts={accounts} records={records} setRecords={setRecords} series={series} />
+        )}
+        {tab === 'annual' && <Annual annual={annual} />}
+      </main>
+
+      {resetOpen && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+              <h3 className="font-semibold">重置数据</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">这两个操作都会覆盖当前本机数据。执行前建议先「导出」备份一份 JSON。</p>
+            <div className="space-y-2">
+              <button onClick={restoreDemo} className="w-full text-sm bg-slate-100 hover:bg-slate-200 rounded-lg py-2.5">恢复为演示数据</button>
+              <button onClick={clearAll} className="w-full text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg py-2.5">清空全部，从零开始</button>
+              <button onClick={() => setResetOpen(false)} className="w-full text-sm text-slate-500 hover:bg-slate-100 rounded-lg py-2.5">取消</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- 总览 ----------
+function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange }) {
+  const [expandCat, setExpandCat] = useState(null);
+  if (!latest) return <p className="text-slate-500">暂无数据，请到「账户管理」新增账户，并在「月度结账」结算新月份。</p>;
+
+  const rec = records[latest.month] || {};
+
+  const pieData = expandCat
+    ? accounts.filter((a) => a.type === 'asset' && a.category === expandCat)
+        .map((a) => ({ name: a.name, value: Number(rec[a.id]) || 0 }))
+        .filter((x) => x.value > 0)
+    : [
+        { key: 'cash', name: CATS.cash, value: latest.cash },
+        { key: 'investment', name: CATS.investment, value: latest.invest },
+        { key: 'fixed', name: CATS.fixed, value: latest.fixed },
+      ].filter((x) => x.value > 0);
+  const pieTotal = pieData.reduce((s, x) => s + x.value, 0);
+
+  const trend = chartData.map((s) => ({ month: s.label, 净资产: +(s.nw / 10000).toFixed(1) }));
+  const concTrend = chartData.map((s) => ({ month: s.label, 集中度: s.concentration }));
+
+  const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
+  const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <StatCard icon={Wallet} label="净资产" value={fmtWan(latest.nw)} tone="indigo"
+          sub={latest.netChange != null ? `本月 ${wanSign(latest.netChange)}` : ''} />
+        <StatCard icon={TrendingUp} label="总资产" value={fmtWan(latest.assets)} tone="emerald" sub={`投资 ${fmtWan(latest.invest)}`} />
+        <StatCard icon={PiggyBank} label="本月攒的" value={fmtWan(latest.saved)} tone="amber" sub={`收入 ${fmtWan(latest.inc)} · 支出 ${fmtWan(latest.exp)}`} />
+        <StatCard icon={Target} label="总负债" value={fmtWan(latest.liab)} tone="rose" />
+        <StatCard icon={Percent} label={`集中度 · ${latest.topInvName || '—'}`} value={(latest.concentration * 100).toFixed(0) + '%'} tone="violet" sub="最大持仓占投资比" />
+        <StatCard icon={Target} label="自由目标数字" value={fmtWan(fire.target)} tone="sky" sub={`年支出 ${fmtWan(fire.annualExp)}`} />
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 font-semibold"><Target className="w-5 h-5 text-indigo-600" />财务自由进度</div>
+          <span className="text-2xl font-bold text-indigo-600">{(fire.progress * 100).toFixed(1)}%</span>
+        </div>
+        <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+          <div className="bg-indigo-600 h-3 rounded-full" style={{ width: `${Math.min(100, fire.progress * 100)}%` }} />
+        </div>
+        <div className="mt-3 text-xs text-slate-500 space-y-1">
+          <p>投资本金 {fmtWan(latest.invest)} × 提取率 {withdrawalRate}% = 年被动收入 {fmtWan(fire.passive)}</p>
+          <p>目标数字 {fmtWan(fire.target)}（年支出 ÷ 提取率，分母不含自住房）· <span className="text-indigo-600 font-medium">{yearsText}</span></p>
+        </div>
+        <div className="flex items-center gap-2 mt-3">
+          <span className="text-xs text-slate-500">提取率</span>
+          <input type="range" min="3" max="6" step="0.5" value={withdrawalRate}
+            onChange={(e) => setWithdrawalRate(Number(e.target.value))} className="flex-1 accent-indigo-600" />
+          <span className="text-xs font-medium w-10 text-right">{withdrawalRate}%</span>
+        </div>
+        <p className="text-xs text-slate-400 mt-1">当前提取率{rateHint}。提取率越高，进度越好看，但长期可持续性越低。</p>
+      </div>
+
+      <div className={`rounded-xl p-4 border ${cashflow.disposable < 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
+        <div className="flex items-center gap-2 font-semibold mb-3">
+          <CalendarClock className="w-5 h-5 text-indigo-600" />下月现金流预测
+          {cashflow.disposable < 0 && (
+            <span className="flex items-center gap-1 text-xs text-rose-600 ml-auto"><AlertTriangle className="w-4 h-4" />工资不够覆盖固定支出</span>
+          )}
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div><div className="text-xs text-slate-500">预计收入</div><div className="font-bold text-emerald-600">{fmtWan(cashflow.predIncome)}</div></div>
+          <div><div className="text-xs text-slate-500">固定支出</div><div className="font-bold text-slate-700">{fmtWan(cashflow.fixedExp)}</div></div>
+          <div><div className="text-xs text-slate-500">可支配</div><div className={`font-bold ${cashflow.disposable < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{fmtWan(cashflow.disposable)}</div></div>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">预计收入取近3个月实际收入平均，仅作提示，不计入净资产。</p>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center gap-2 font-semibold mb-1">
+          {expandCat && (
+            <button onClick={() => setExpandCat(null)} className="flex items-center text-indigo-600 text-sm"><ChevronLeft className="w-4 h-4" />返回</button>
+          )}
+          <span>资产占比{expandCat ? ` · ${CATS[expandCat]}` : '（按大类）'}</span>
+        </div>
+        {!expandCat && <p className="text-xs text-slate-400 mb-1">点击扇区可展开查看该类下的账户</p>}
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={78}
+                label={({ percent }) => (percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : '')} labelLine={false}
+                onClick={(d) => { if (!expandCat && d && d.payload.key) setExpandCat(d.payload.key); }}>
+                {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} cursor={expandCat ? 'default' : 'pointer'} />)}
+              </Pie>
+              <Tooltip formatter={(v) => fmtYuan(v)} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center mt-1">
+          {pieData.map((d, i) => (
+            <div key={i} className="flex items-center gap-1.5 text-xs">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
+              <span className="text-slate-600">{d.name}</span>
+              <span className="text-slate-400">{fmtYuan(d.value)} · {pieTotal ? (d.value / pieTotal * 100).toFixed(1) : 0}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-slate-500">图表范围</span>
+        <div className="flex gap-1 bg-white rounded-lg p-1 border border-slate-200">
+          {[{ k: '1y', l: '近一年' }, { k: 'all', l: '全部' }].map((r) => (
+            <button key={r.k} onClick={() => setRange(r.k)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium ${range === r.k ? 'bg-indigo-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>{r.l}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-2">净资产趋势（万元）</div>
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={trend}>
+              <defs>
+                <linearGradient id="nw" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v) => v + '万'} />
+              <Area type="monotone" dataKey="净资产" stroke="#6366f1" fill="url(#nw)" strokeWidth={2} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-2">持仓集中度走势（{latest.topInvName || '最大持仓'}占投资比）</div>
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={concTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 11 }} domain={[0, 1]} tickFormatter={(v) => (v * 100).toFixed(0) + '%'} />
+              <Tooltip formatter={(v) => (v * 100).toFixed(1) + '%'} />
+              <Line type="monotone" dataKey="集中度" stroke="#f59e0b" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-xs text-slate-400 mt-1">单一持仓占比越高，投资越集中、波动风险越大。</p>
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, sub, tone }) {
+  const tones = {
+    indigo: 'text-indigo-600 bg-indigo-50', emerald: 'text-emerald-600 bg-emerald-50',
+    amber: 'text-amber-600 bg-amber-50', rose: 'text-rose-600 bg-rose-50',
+    violet: 'text-violet-600 bg-violet-50', sky: 'text-sky-600 bg-sky-50',
+  };
+  return (
+    <div className="bg-white rounded-xl p-3 border border-slate-200">
+      <div className={`inline-flex p-1.5 rounded-lg mb-1 ${tones[tone]}`}><Icon className="w-4 h-4" /></div>
+      <div className="text-xs text-slate-500 truncate">{label}</div>
+      <div className="text-lg font-bold">{value}</div>
+      {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
+    </div>
+  );
+}
+
+// ---------- 账户管理 ----------
+function Accounts({ accounts, setAccounts, setRecords, latest, records }) {
+  const [modal, setModal] = useState(null);
+  const [confirm, setConfirm] = useState(null);
+  const [showInactive, setShowInactive] = useState(false);
+
+  const familyIncome = accounts.filter((a) => a.type === 'income');
+  const familyExpense = accounts.filter((a) => a.type === 'expense');
+  const monthInc = latest ? latest.inc : 0;
+  const monthExp = latest ? latest.exp : 0;
+  const inactive = accounts.filter((a) => !isActive(a));
+
+  const remove = (id) => {
+    setAccounts((prev) => prev.filter((a) => a.id !== id));
+    setRecords((prev) => {
+      const copy = { ...prev };
+      Object.keys(copy).forEach((m) => { const r = { ...copy[m] }; delete r[id]; copy[m] = r; });
+      return copy;
+    });
+    setConfirm(null);
+  };
+  const setActiveState = (id, val) => {
+    setAccounts((prev) => prev.map((a) => (a.id === id ? { ...a, active: val } : a)));
+    setConfirm(null);
+  };
+
+  const save = (acc) => {
+    setAccounts((prev) => {
+      const exists = prev.find((a) => a.id === acc.id);
+      return exists ? prev.map((a) => (a.id === acc.id ? acc : a)) : [...prev, acc];
+    });
+    setModal(null);
+  };
+
+  const sections = [
+    { type: 'asset', title: '资产账户', hint: '填月末余额' },
+    { type: 'liability', title: '负债账户', hint: '填月末余额' },
+    { type: 'income', title: '收入账户', hint: '填当月发生额' },
+    { type: 'expense', title: '支出账户', hint: '固定支出填月供，浮动按月填' },
+  ];
+
+  const typeLabel = { asset: '资产', liability: '负债', income: '收入', expense: '支出' };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-3">家庭总体状态</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
+          <MiniStat label="总资产" value={fmtWan(latest?.assets || 0)} c="text-emerald-600" />
+          <MiniStat label="总负债" value={fmtWan(latest?.liab || 0)} c="text-rose-600" />
+          <MiniStat label="净资产" value={fmtWan(latest?.nw || 0)} c="text-indigo-600" />
+          <MiniStat label="家庭月收入" value={fmtWan(monthInc)} c="text-emerald-600" />
+          <MiniStat label="家庭月支出" value={fmtWan(monthExp)} c="text-amber-600" />
+          <MiniStat label="月结余" value={fmtWan(monthInc - monthExp)} c="text-slate-700" />
+        </div>
+        <p className="text-xs text-slate-400 mt-2">共 {familyIncome.length} 个收入来源、{familyExpense.length} 个支出项，支持按家庭成员配置。</p>
+      </div>
+
+      {sections.map((sec) => {
+        const rows = accounts.filter((a) => a.type === sec.type && isActive(a));
+        return (
+          <div key={sec.type} className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <span className="font-semibold">{sec.title}</span>
+                <span className="text-xs text-slate-400 ml-2">{sec.hint}</span>
+              </div>
+              <button onClick={() => setModal({ id: '', name: '', type: sec.type, category: 'cash', isFixed: false, fixedAmount: 0, member: '共同', active: true })}
+                className="flex items-center gap-1 text-xs text-indigo-600">
+                <PlusCircle className="w-4 h-4" />新增
+              </button>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {rows.map((a) => (
+                <div key={a.id} className="flex items-center justify-between py-2">
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{a.name}
+                      {a.type === 'asset' && <span className="ml-2 text-xs text-slate-400">{CATS[a.category]}</span>}
+                      {a.type === 'expense' && a.isFixed && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">固定 {a.fixedAmount}/月</span>}
+                    </div>
+                    <div className="text-xs text-slate-400">{a.member}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setModal(a)} className="text-slate-400 hover:text-indigo-600" title="编辑"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="text-emerald-500 hover:text-emerald-600" title="停用"><Power className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              ))}
+              {rows.length === 0 && <p className="text-xs text-slate-400 py-2">暂无，点右上角新增</p>}
+            </div>
+          </div>
+        );
+      })}
+
+      {inactive.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <button onClick={() => setShowInactive((v) => !v)} className="w-full flex items-center justify-between px-4 py-3">
+            <span className="font-semibold text-slate-600 flex items-center gap-2">
+              <Power className="w-4 h-4 text-slate-400" />已停用 ({inactive.length})
+            </span>
+            <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showInactive ? 'rotate-180' : ''}`} />
+          </button>
+          {showInactive && (
+            <div className="px-4 pb-3 divide-y divide-slate-100">
+              {inactive.map((a) => (
+                <div key={a.id} className="flex items-center justify-between py-2 opacity-70">
+                  <div className="min-w-0">
+                    <div className="font-medium text-sm truncate">{a.name}
+                      <span className="ml-2 text-xs text-slate-400">{typeLabel[a.type]}{a.type === 'asset' ? ` · ${CATS[a.category]}` : ''}</span>
+                    </div>
+                    <div className="text-xs text-slate-400">{a.member}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setActiveState(a.id, true)} className="text-xs text-indigo-600 hover:underline">重新启用</button>
+                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除"><Trash2 className="w-4 h-4" /></button>
+                  </div>
+                </div>
+              ))}
+              <p className="text-xs text-slate-400 pt-2">停用账户的历史数据仍完整参与净资产与年度小结计算，只是不出现在结账录入和当前余额中。</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {modal && <AccountModal account={modal} onSave={save} onClose={() => setModal(null)} />}
+      {confirm && (
+        <ConfirmModal confirm={confirm} records={records} latest={latest}
+          onCancel={() => setConfirm(null)}
+          onDeactivate={() => setActiveState(confirm.account.id, false)}
+          onDelete={() => remove(confirm.account.id)} />
+      )}
+    </div>
+  );
+}
+
+function ConfirmModal({ confirm, records, latest, onCancel, onDeactivate, onDelete }) {
+  const { mode, account } = confirm;
+  const id = account.id;
+  let monthCount = 0;
+  Object.keys(records).forEach((m) => { if ((Number(records[m][id]) || 0) !== 0) monthCount++; });
+  const curVal = (records[latest?.month] || {})[id];
+
+  const isDeactivate = mode === 'deactivate';
+  return (
+    <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+        <div className="flex items-center gap-2 mb-2">
+          {isDeactivate
+            ? <Power className="w-5 h-5 text-emerald-600" />
+            : <AlertTriangle className="w-5 h-5 text-rose-600" />}
+          <h3 className="font-semibold">{isDeactivate ? '停用账户' : '删除账户'}</h3>
+        </div>
+        {isDeactivate ? (
+          <div className="text-sm text-slate-600 space-y-2 mb-4">
+            <p>确定停用「<span className="font-medium">{account.name}</span>」吗？</p>
+            <p className="bg-emerald-50 text-emerald-700 rounded-lg p-2.5 text-xs">
+              历史数据将<b>完整保留</b>，过往月份的净资产、年度小结、趋势图均<b>不受影响</b>。停用后它不再出现在月度结账录入和当前余额里，<b>可随时重新启用</b>。
+            </p>
+            {curVal != null && curVal !== 0 && (
+              <p className="text-xs text-amber-600">提示：该账户当月余额为 {fmtYuan(curVal)}，停用前请确认是否已清零/转出。</p>
+            )}
+          </div>
+        ) : (
+          <div className="text-sm text-slate-600 space-y-2 mb-4">
+            <p>确定删除「<span className="font-medium">{account.name}</span>」吗？</p>
+            <p className="bg-rose-50 text-rose-700 rounded-lg p-2.5 text-xs">
+              该账户目前涉及 <b>{monthCount}</b> 个月的记录，删除会<b>清空它在所有月份的历史数据</b>，过往的总资产、净资产、趋势线与年度小结都会随之改变，且<b>无法恢复</b>。
+            </p>
+            <p className="text-xs text-slate-400">若只是「现在没有了」但想保留历史，建议改用「停用」。</p>
+          </div>
+        )}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+          {isDeactivate ? (
+            <button onClick={onDeactivate} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">确认停用</button>
+          ) : (
+            <button onClick={onDelete} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, c }) {
+  return (
+    <div className="bg-slate-50 rounded-lg py-2">
+      <div className="text-xs text-slate-500">{label}</div>
+      <div className={`font-bold ${c}`}>{value}</div>
+    </div>
+  );
+}
+
+function AccountModal({ account, onSave, onClose }) {
+  const [form, setForm] = useState({ ...account });
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const submit = () => {
+    if (!form.name.trim()) return;
+    onSave({ ...form, id: form.id || `acc_${Date.now()}`, fixedAmount: Number(form.fixedAmount) || 0, active: form.active !== false });
+  };
+  return (
+    <div className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold">{account.id ? '编辑账户' : '新增账户'}</h3>
+          <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+        <div className="space-y-3">
+          <Field label="名称">
+            <input value={form.name} onChange={(e) => set('name', e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" placeholder="如 老公工资 / 房贷" />
+          </Field>
+          <Field label="类型">
+            <select value={form.type} onChange={(e) => set('type', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+              <option value="asset">资产</option>
+              <option value="liability">负债</option>
+              <option value="income">收入</option>
+              <option value="expense">支出</option>
+            </select>
+          </Field>
+          {form.type === 'asset' && (
+            <Field label="资产大类">
+              <select value={form.category} onChange={(e) => set('category', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                <option value="cash">现金</option>
+                <option value="investment">投资</option>
+                <option value="fixed">固定资产</option>
+              </select>
+            </Field>
+          )}
+          {form.type === 'expense' && (
+            <div>
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={form.isFixed} onChange={(e) => set('isFixed', e.target.checked)} className="accent-indigo-600" />
+                这是固定支出（房贷/房租等每月固定）
+              </label>
+              {form.isFixed && (
+                <Field label="每月固定金额">
+                  <input type="number" value={form.fixedAmount} onChange={(e) => set('fixedAmount', e.target.value)}
+                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                </Field>
+              )}
+            </div>
+          )}
+          <Field label="归属成员">
+            <select value={form.member} onChange={(e) => set('member', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+              {MEMBERS.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+        </div>
+        <button onClick={submit} className="w-full mt-4 bg-indigo-600 text-white rounded-lg py-2.5 font-medium">保存</button>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="block text-xs text-slate-500 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// ---------- 月度结账 ----------
+function Closing({ accounts, records, setRecords, series }) {
+  const months = Object.keys(records).sort();
+  const [sel, setSel] = useState(months[months.length - 1]);
+
+  const rec = records[sel] || {};
+  const setVal = (id, v) => {
+    if (!sel) return;
+    setRecords((prev) => ({ ...prev, [sel]: { ...prev[sel], [id]: Number(v) || 0 } }));
+  };
+
+  const addMonth = () => {
+    const last = months[months.length - 1];
+    const now = new Date();
+    const nm = last ? nextMonth(last) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const prefill = {};
+    accounts.filter(isActive).forEach((a) => {
+      if (a.type === 'asset' || a.type === 'liability') prefill[a.id] = (last && records[last]?.[a.id]) || 0;
+      else if (a.type === 'expense' && a.isFixed) prefill[a.id] = a.fixedAmount;
+      else prefill[a.id] = 0;
+    });
+    setRecords((prev) => ({ ...prev, [nm]: prefill }));
+    setSel(nm);
+  };
+
+  const delMonth = (m) => {
+    setRecords((prev) => {
+      const copy = { ...prev };
+      delete copy[m];
+      return copy;
+    });
+    if (m === sel) {
+      const remain = Object.keys(records).filter((x) => x !== m).sort();
+      setSel(remain[remain.length - 1]);
+    }
+  };
+
+  const groups = [
+    { type: 'asset', title: '资产（月末余额）' },
+    { type: 'liability', title: '负债（月末余额）' },
+    { type: 'income', title: '收入（当月发生额）' },
+    { type: 'expense', title: '支出（当月发生额）' },
+  ];
+
+  let inc = 0, exp = 0;
+  accounts.forEach((a) => {
+    const v = Number(rec[a.id]) || 0;
+    if (a.type === 'income') inc += v;
+    if (a.type === 'expense') exp += v;
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-2 flex-wrap">
+        <span className="text-sm text-slate-500">结账月份</span>
+        <select value={sel || ''} onChange={(e) => setSel(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm">
+          {months.length === 0 && <option value="">（暂无月份）</option>}
+          {months.map((m) => <option key={m} value={m}>{m}</option>)}
+        </select>
+        <button onClick={addMonth} className="ml-auto flex items-center gap-1 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg">
+          <PlusCircle className="w-4 h-4" />结算新月份
+        </button>
+      </div>
+
+      {!sel ? (
+        <p className="text-sm text-slate-500 bg-white rounded-xl p-4 border border-slate-200">还没有任何月份，点右上角「结算新月份」开始录入。</p>
+      ) : (
+        <>
+          <div className="bg-white rounded-xl p-4 border border-slate-200 grid grid-cols-3 gap-2 text-center">
+            <MiniStat label="本月收入" value={fmtWan(inc)} c="text-emerald-600" />
+            <MiniStat label="本月支出" value={fmtWan(exp)} c="text-amber-600" />
+            <MiniStat label="本月攒的" value={fmtWan(inc - exp)} c="text-indigo-600" />
+          </div>
+
+          {groups.map((g) => {
+            const rows = accounts.filter((a) => a.type === g.type && isActive(a));
+            return (
+              <div key={g.type} className="bg-white rounded-xl p-4 border border-slate-200">
+                <div className="font-semibold mb-2">{g.title}</div>
+                <div className="space-y-2">
+                  {rows.map((a) => (
+                    <div key={a.id} className="flex items-center gap-3">
+                      <div className="flex-1 text-sm truncate">
+                        {a.name}
+                        {a.type === 'expense' && a.isFixed && <span className="ml-1 text-xs text-amber-600">固定</span>}
+                      </div>
+                      <input type="number" value={rec[a.id] ?? ''} onChange={(e) => setVal(a.id, e.target.value)}
+                        className="w-32 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-right" />
+                    </div>
+                  ))}
+                  {rows.length === 0 && <p className="text-xs text-slate-400">该分类下暂无启用账户</p>}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">历史记录（点月份可回到该月编辑）</div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-400 bg-slate-50">
+                <th className="text-left px-4 py-2 font-medium">月份</th>
+                <th className="text-right px-3 py-2 font-medium">净资产</th>
+                <th className="text-right px-3 py-2 font-medium">攒的</th>
+                <th className="text-right px-3 py-2 font-medium">市场给的</th>
+                <th className="px-3 py-2"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...series].reverse().map((s) => (
+                <tr key={s.month} className={`border-t border-slate-50 ${s.month === sel ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
+                  <td className="px-4 py-2 cursor-pointer text-indigo-600 font-medium" onClick={() => setSel(s.month)}>{s.month}</td>
+                  <td className="px-3 py-2 text-right">{fmtWan(s.nw)}</td>
+                  <td className="px-3 py-2 text-right text-emerald-600">{wanSign(s.saved)}</td>
+                  <td className={`px-3 py-2 text-right ${(s.market || 0) >= 0 ? 'text-amber-600' : 'text-rose-500'}`}>{s.netChange == null ? '-' : wanSign(s.market)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <button onClick={() => delMonth(s.month)} className="text-slate-300 hover:text-rose-500"><Trash2 className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------- 年度小结 ----------
+function Annual({ annual }) {
+  if (!annual.length) return <p className="text-slate-500">暂无数据</p>;
+
+  const chartData = annual.map((a) => ({
+    year: a.year,
+    净资产: Math.round(a.netWorth / 10000),
+    攒的: Math.round(a.saved / 10000),
+    市场给的: Math.round(a.market / 10000),
+  }));
+
+  const latestY = annual[annual.length - 1];
+  const savedAbs = Math.abs(latestY.saved);
+  const marketAbs = Math.abs(latestY.market);
+  const barTotal = savedAbs + marketAbs || 1;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-2">增长拆解 · {latestY.year}</div>
+        {latestY.yoyAbs == null ? (
+          <p className="text-sm text-slate-500">首个记账年度，暂无同比数据。年内净资产变化 {wanSign(latestY.growth)}。</p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-600 mb-1">
+              年末净资产 <span className="font-bold text-indigo-600">{fmtWan(latestY.netWorth)}</span>，
+              较上年 <span className={latestY.yoyAbs >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>{wanSign(latestY.yoyAbs)}（{pctSign(latestY.yoyPct)}）</span>
+            </p>
+            <p className="text-sm text-slate-600 mb-2">
+              其中：自己攒的 <span className="text-emerald-600 font-medium">{wanSign(latestY.saved)}</span> ＋ 市场给的 <span className="text-amber-600 font-medium">{wanSign(latestY.market)}</span>
+            </p>
+            <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
+              <div className="bg-emerald-500" style={{ width: `${(savedAbs / barTotal) * 100}%` }} />
+              <div className="bg-amber-500" style={{ width: `${(marketAbs / barTotal) * 100}%` }} />
+            </div>
+            <div className="flex justify-between text-xs text-slate-400 mt-1">
+              <span>攒的 {(savedAbs / barTotal * 100).toFixed(0)}%</span>
+              <span>市场给的 {(marketAbs / barTotal * 100).toFixed(0)}%</span>
+            </div>
+          </>
+        )}
+        <p className="text-xs text-slate-400 mt-2 flex items-start gap-1">
+          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />"攒的+市场给的"是对净资产变化的近似拆解，可能因账户增删、余额手动调整等与同比略有出入。
+        </p>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-2">年末净资产（万元）</div>
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v) => v + '万'} />
+              <Bar dataKey="净资产" fill="#6366f1" radius={[4, 4, 0, 0]} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-2">增长来源：攒的 vs 市场给的（万元）</div>
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={chartData} stackOffset="sign">
+              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 11 }} />
+              <Tooltip formatter={(v) => v + '万'} />
+              <Legend />
+              <ReferenceLine y={0} stroke="#cbd5e1" />
+              <Bar dataKey="攒的" stackId="g" fill="#10b981" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="市场给的" stackId="g" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200 overflow-x-auto">
+        <div className="font-semibold mb-2">年度明细</div>
+        <table className="w-full text-sm whitespace-nowrap">
+          <thead>
+            <tr className="text-slate-400 border-b border-slate-100">
+              <th className="text-left py-2 font-medium sticky left-0 bg-white">年份</th>
+              <th className="text-right py-2 px-3 font-medium">年末净资产</th>
+              <th className="text-right py-2 px-3 font-medium">同比</th>
+              <th className="text-right py-2 px-3 font-medium">年度增长</th>
+              <th className="text-right py-2 px-3 font-medium">攒的</th>
+              <th className="text-right py-2 px-3 font-medium">市场给的</th>
+              <th className="text-right py-2 px-3 font-medium">储蓄率</th>
+              <th className="text-right py-2 px-3 font-medium">年末总资产</th>
+              <th className="text-right py-2 px-3 font-medium">年末负债</th>
+              <th className="text-right py-2 px-3 font-medium">年内减债</th>
+              <th className="text-right py-2 px-3 font-medium">集中度</th>
+            </tr>
+          </thead>
+          <tbody>
+            {annual.map((a) => (
+              <tr key={a.year} className="border-b border-slate-50">
+                <td className="py-2 font-medium sticky left-0 bg-white">{a.year}</td>
+                <td className="text-right px-3 font-medium">{fmtWan(a.netWorth)}</td>
+                <td className={`text-right px-3 ${a.yoyPct == null ? 'text-slate-400' : a.yoyPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{a.yoyPct == null ? '首年' : pctSign(a.yoyPct)}</td>
+                <td className="text-right px-3 text-indigo-600">{wanSign(a.growth)}</td>
+                <td className="text-right px-3 text-emerald-600">{wanSign(a.saved)}</td>
+                <td className="text-right px-3 text-amber-600">{wanSign(a.market)}</td>
+                <td className="text-right px-3">{(a.savingsRate * 100).toFixed(0)}%</td>
+                <td className="text-right px-3 text-slate-600">{fmtWan(a.totalAssets)}</td>
+                <td className="text-right px-3 text-rose-500">{fmtWan(a.liabilities)}</td>
+                <td className="text-right px-3 text-slate-600">{wanSign(a.debtReduced)}</td>
+                <td className="text-right px-3 text-amber-600">{(a.concentration * 100).toFixed(0)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="text-xs text-slate-400 mt-2">「同比」为年末净资产较上一年末的变化；首年因缺上一年末数据，仅统计当年区间内变化。</p>
+      </div>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(FamilyFinance));
+</script>
+</body>
+</html>
