@@ -950,11 +950,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
   const rec = records[sel] || {};
   const setVal = (id, v) => {
     if (!sel) return;
-    const value = Number(v) || 0;
+    const value = v === '' ? '' : (Number(v) || 0);
     setRecords((prev) => ({ ...prev, [sel]: { ...prev[sel], [id]: value } }));
     const account = accounts.find((a) => a.id === id);
     if (account?.type === 'expense' && account.isFixed) {
-      setAccounts((prev) => prev.map((a) => a.id === id ? { ...a, fixedAmount: value } : a));
+      setAccounts((prev) => prev.map((a) => a.id === id ? { ...a, fixedAmount: value === '' ? 0 : value } : a));
     }
   };
 
@@ -1040,7 +1040,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
                         【{a.member}】{a.name}
                         {a.type === 'expense' && a.isFixed && <span className="ml-1 text-xs text-amber-600">固定</span>}
                       </div>
-                      <input type="number" aria-label={`${a.member} ${a.name}`} value={rec[a.id] ?? ''} onChange={(e) => setVal(a.id, e.target.value)}
+                      <input type="number" aria-label={`${a.member} ${a.name}`} value={rec[a.id] ?? ''}
+                        onChange={(e) => setVal(a.id, e.target.value)} onBlur={(e) => { if (e.target.value === '') setVal(a.id, 0); }}
                         className="w-32 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-right" />
                     </div>
                   ))}
