@@ -5,24 +5,107 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="家庭财务">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#ffffff">
 <title>家庭财务</title>
 <script src="https://cdn.tailwindcss.com"></script>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/recharts@2.10.3/umd/Recharts.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <style>
   html, body { margin: 0; -webkit-tap-highlight-color: transparent; }
   body { padding-bottom: env(safe-area-inset-bottom); }
   header { padding-top: env(safe-area-inset-top); }
+  .spin { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: r 0.8s linear infinite; }
+  @keyframes r { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body class="bg-slate-100">
-<div id="root" class="min-h-screen"></div>
+<div id="root" class="min-h-screen flex flex-col items-center justify-center gap-3 text-slate-500 text-sm">
+  <div class="spin"></div>
+  <div id="loadmsg">正在加载图表库…</div>
+</div>
 
-<script type="text/babel">
+<!-- 多 CDN 自动回退加载器 -->
+<script>
+(function () {
+  var root = document.getElementById('root');
+  var msg = document.getElementById('loadmsg');
+  function setMsg(t) { if (msg) msg.textContent = t; }
+  function showError(t) {
+    root.className = 'min-h-screen';
+    root.innerHTML =
+      '<div style="padding:24px;font-family:-apple-system,sans-serif;color:#334155;line-height:1.7">' +
+      '<h2 style="color:#e11d48;margin:0 0 8px">' + t.title + '</h2>' +
+      '<p style="margin:6px 0">' + t.body + '</p>' +
+      (t.tip ? '<p style="margin:6px 0;color:#64748b;font-size:13px">' + t.tip + '</p>' : '') +
+      '</div>';
+  }
+
+  // 每个库准备 3 个镜像：jsDelivr（国内较快）→ cdnjs → unpkg
+  var libs = [
+    { global: 'React', urls: [
+      'https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js',
+      'https://unpkg.com/react@18.3.1/umd/react.production.min.js' ] },
+    { global: 'ReactDOM', urls: [
+      'https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js',
+      'https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js' ] },
+    { global: 'PropTypes', urls: [
+      'https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/prop-types/15.8.1/prop-types.min.js',
+      'https://unpkg.com/prop-types@15.8.1/prop-types.min.js' ] },
+    { global: 'Recharts', urls: [
+      'https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.min.js',
+      'https://unpkg.com/recharts@2.12.7/umd/Recharts.min.js',
+      'https://cdn.jsdelivr.net/npm/recharts@2.10.4/umd/Recharts.min.js' ] },
+    { global: 'Babel', urls: [
+      'https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.7/babel.min.js',
+      'https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js',
+      'https://unpkg.com/@babel/standalone@7.24.7/babel.min.js' ] },
+  ];
+
+  function loadOne(lib, idx, done) {
+    if (idx >= lib.urls.length) { done(new Error(lib.global)); return; }
+    var s = document.createElement('script');
+    s.src = lib.urls[idx];
+    s.onload = function () {
+      if (window[lib.global]) done(null);
+      else loadOne(lib, idx + 1, done); // 下载成功但没建立全局变量，试下一个镜像
+    };
+    s.onerror = function () { loadOne(lib, idx + 1, done); };
+    document.head.appendChild(s);
+  }
+
+  function loadAll(i) {
+    if (i >= libs.length) { start(); return; }
+    if (window[libs[i].global]) { loadAll(i + 1); return; }
+    setMsg('正在加载 ' + libs[i].global + '…');
+    loadOne(libs[i], 0, function (err) {
+      if (err) {
+        showError({
+          title: '无法加载「' + err.message + '」',
+          body: '三个镜像（jsDelivr / cdnjs / unpkg）都下载失败，通常是网络不通或被拦截。',
+          tip: '请确认设备已联网后刷新；若在公司/校园网或使用了代理，可临时关闭代理再试。'
+        });
+        return;
+      }
+      loadAll(i + 1);
+    });
+  }
+
+  function start() {
+    setMsg('正在渲染…');
+    try {
+      window.Babel.transformScriptTags(); // 手动触发编译（动态加载后不会自动执行）
+    } catch (e) {
+      showError({ title: '页面编译失败', body: String(e && e.message || e) });
+    }
+  }
+
+  loadAll(0);
+})();
+</script>
+
+<!-- 应用代码：由上方加载器在依赖就位后手动编译执行 -->
+<script type="text/babel" data-presets="react" id="appScript">
 const { useState, useMemo, useRef, useEffect } = React;
 const {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
@@ -181,7 +264,6 @@ function FamilyFinance() {
   const [resetOpen, setResetOpen] = useState(false);
   const fileRef = useRef(null);
 
-  // ----- 自动保存到 localStorage -----
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ accounts, records, withdrawalRate }));
@@ -191,7 +273,6 @@ function FamilyFinance() {
     } catch (e) { /* ignore */ }
   }, [accounts, records, withdrawalRate]);
 
-  // ----- 计算月度序列（含全部账户，保证历史不因停用而改变） -----
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
     const out = [];
@@ -233,7 +314,6 @@ function FamilyFinance() {
     return series.slice(-12);
   }, [series, range, latest]);
 
-  // ----- FIRE（分母不含自住房） -----
   const fire = useMemo(() => {
     if (!latest) return { progress: 0, passive: 0, annualExp: 0, target: 0, years: null, invest: 0 };
     const last12 = series.slice(-12);
@@ -250,7 +330,6 @@ function FamilyFinance() {
     return { progress, passive, annualExp, annualSaved, target, years, invest };
   }, [series, latest, withdrawalRate]);
 
-  // ----- 下月现金流预测 -----
   const cashflow = useMemo(() => {
     const last3 = series.slice(-3);
     const predIncome = last3.length ? last3.reduce((s, x) => s + x.inc, 0) / last3.length : 0;
@@ -260,7 +339,6 @@ function FamilyFinance() {
     return { predIncome, fixedExp, disposable: predIncome - fixedExp };
   }, [series, accounts]);
 
-  // ----- 年度小结 -----
   const annual = useMemo(() => {
     const byYear = {};
     series.forEach((s) => { const y = s.month.slice(0, 4); (byYear[y] = byYear[y] || []).push(s); });
@@ -288,7 +366,6 @@ function FamilyFinance() {
     });
   }, [series]);
 
-  // ----- 导入 / 导出 -----
   const exportData = () => {
     const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -314,7 +391,6 @@ function FamilyFinance() {
     e.target.value = '';
   };
 
-  // ----- 重置 -----
   const restoreDemo = () => {
     setAccounts(demo.accounts.map((a) => ({ ...a })));
     setRecords({ ...demo.records });
@@ -1093,8 +1169,10 @@ function Annual({ annual }) {
   );
 }
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(React.createElement(FamilyFinance));
+const rootEl = ReactDOM.createRoot(document.getElementById('root'));
+document.getElementById('root').className = 'min-h-screen';
+rootEl.render(React.createElement(FamilyFinance));
 </script>
 </body>
 </html>
+
