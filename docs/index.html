@@ -263,6 +263,9 @@ function FamilyFinance({ onChangePassword }) {
   );
   const [records, setRecords] = useState(() => saved ? saved.records : { ...demo.records });
   const [withdrawalRate, setWithdrawalRate] = useState(() => (saved && saved.withdrawalRate) ? saved.withdrawalRate : 4);
+  const [monthStatus, setMonthStatus] = useState(() =>
+    saved && saved.monthStatus && typeof saved.monthStatus === 'object' ? saved.monthStatus : {}
+  );
   const [tab, setTab] = useState('overview');
   const [range, setRange] = useState('1y');
   const [saveStatus, setSaveStatus] = useState('');
@@ -272,14 +275,14 @@ function FamilyFinance({ onChangePassword }) {
 
   useEffect(() => {
     try {
-      const payload = JSON.stringify({ accounts, records, withdrawalRate });
+      const payload = JSON.stringify({ accounts, records, withdrawalRate, monthStatus });
       localStorage.setItem(STORAGE_KEY, payload);
       if (localStorage.getItem(STORAGE_KEY) !== payload) throw new Error('保存校验失败');
       setSaveStatus('saved');
       const t = setTimeout(() => setSaveStatus(''), 1500);
       return () => clearTimeout(t);
     } catch (e) { setSaveStatus('error'); }
-  }, [accounts, records, withdrawalRate]);
+  }, [accounts, records, withdrawalRate, monthStatus]);
 
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
@@ -375,7 +378,7 @@ function FamilyFinance({ onChangePassword }) {
   }, [series]);
 
   const exportData = () => {
-    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate, monthStatus }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -393,6 +396,7 @@ function FamilyFinance({ onChangePassword }) {
         if (obj.accounts) setAccounts(obj.accounts.map((a) => ({ ...a, active: a.active !== false })));
         if (obj.records) setRecords(obj.records);
         if (obj.withdrawalRate) setWithdrawalRate(obj.withdrawalRate);
+        setMonthStatus(obj.monthStatus && typeof obj.monthStatus === 'object' ? obj.monthStatus : {});
       } catch { /* ignore */ }
     };
     reader.readAsText(f);
@@ -403,12 +407,14 @@ function FamilyFinance({ onChangePassword }) {
     setAccounts(demo.accounts.map((a) => ({ ...a })));
     setRecords({ ...demo.records });
     setWithdrawalRate(4);
+    setMonthStatus({});
     setResetOpen(false);
     setTab('overview');
   };
   const clearAll = () => {
     setAccounts([]);
     setRecords({});
+    setMonthStatus({});
     setResetOpen(false);
     setTab('accounts');
   };
@@ -467,10 +473,11 @@ function FamilyFinance({ onChangePassword }) {
         )}
         {tab === 'accounts' && (
           <Accounts accounts={accounts} setAccounts={setAccounts} setRecords={setRecords}
-            latest={latest} records={records} />
+            latest={latest} records={records} monthStatus={monthStatus} />
         )}
         {tab === 'closing' && (
-          <Closing accounts={accounts} setAccounts={setAccounts} records={records} setRecords={setRecords} series={series} />
+          <Closing accounts={accounts} setAccounts={setAccounts} records={records} setRecords={setRecords}
+            series={series} monthStatus={monthStatus} setMonthStatus={setMonthStatus} />
         )}
         {tab === 'annual' && <Annual annual={annual} />}
       </main>
@@ -878,7 +885,7 @@ function StatCard({ icon: Icon, label, value, sub, tone }) {
 }
 
 // ---------- 账户管理 ----------
-function Accounts({ accounts, setAccounts, setRecords, latest, records }) {
+function Accounts({ accounts, setAccounts, setRecords, latest, records, monthStatus }) {
   const [modal, setModal] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
@@ -908,7 +915,7 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records }) {
       const exists = prev.find((a) => a.id === acc.id);
       return exists ? prev.map((a) => (a.id === acc.id ? acc : a)) : [...prev, acc];
     });
-    if (acc.type === 'expense' && acc.isFixed && latest?.month) {
+    if (acc.type === 'expense' && acc.isFixed && latest?.month && monthStatus[latest.month] !== 'closed') {
       setRecords((prev) => ({
         ...prev,
         [latest.month]: { ...prev[latest.month], [acc.id]: Number(acc.fixedAmount) || 0 },
@@ -1149,10 +1156,11 @@ function Field({ label, children }) {
 }
 
 // ---------- 月度结账 ----------
-function Closing({ accounts, setAccounts, records, setRecords, series }) {
+function Closing({ accounts, setAccounts, records, setRecords, series, monthStatus, setMonthStatus }) {
   const months = Object.keys(records).sort();
   const [sel, setSel] = useState(months[months.length - 1]);
   const [deleteMonth, setDeleteMonth] = useState(null);
+  const [closeCheckOpen, setCloseCheckOpen] = useState(false);
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
@@ -1161,8 +1169,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
   const previousMonths = months.filter((m) => m < sel);
   const previousMonth = previousMonths[previousMonths.length - 1];
   const previousRec = records[previousMonth] || {};
+  const isClosed = monthStatus[sel] === 'closed';
   const setVal = (id, v) => {
-    if (!sel) return;
+    if (!sel || isClosed) return;
     const value = v === '' ? '' : (Number(v) || 0);
     setRecords((prev) => ({ ...prev, [sel]: { ...prev[sel], [id]: value } }));
     const account = accounts.find((a) => a.id === id);
@@ -1184,12 +1193,18 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
       else prefill[a.id] = 0;
     });
     setRecords((prev) => ({ ...prev, [nm]: prefill }));
+    setMonthStatus((prev) => ({ ...prev, [nm]: 'draft' }));
     setSel(nm);
     setNewMonth(nextMonth(nm));
   };
 
   const delMonth = (m) => {
     setRecords((prev) => {
+      const copy = { ...prev };
+      delete copy[m];
+      return copy;
+    });
+    setMonthStatus((prev) => {
       const copy = { ...prev };
       delete copy[m];
       return copy;
@@ -1216,14 +1231,40 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
     if (a.type === 'expense') exp += v;
   });
 
+  const activeAccounts = accounts.filter(isActive);
+  const closeBlockers = activeAccounts
+    .filter((a) => !Object.prototype.hasOwnProperty.call(rec, a.id) || rec[a.id] === '' || rec[a.id] == null)
+    .map((a) => `${a.type === 'expense' && a.isFixed ? '固定支出' : '账户'}「${a.member} · ${a.name}」未填写`);
+  const closeWarnings = [];
+  if (inc === 0) closeWarnings.push('本月收入合计为 0，请确认是否符合实际情况。');
+  activeAccounts.filter((a) => (a.type === 'asset' || a.type === 'liability') && Number(rec[a.id]) === 0)
+    .forEach((a) => closeWarnings.push(`${a.type === 'asset' ? '资产' : '负债'}「${a.member} · ${a.name}」为 0。`));
+  if (previousMonth) {
+    activeAccounts.filter((a) => a.type === 'asset' || a.type === 'liability').forEach((a) => {
+      const current = Number(rec[a.id]) || 0;
+      const previous = Number(previousRec[a.id]) || 0;
+      const change = current - previous;
+      if (previous !== 0 && Math.abs(change) >= 10000 && Math.abs(change / previous) >= 0.5) {
+        closeWarnings.push(`「${a.member} · ${a.name}」较上月变化较大：${fmtYuan(previous)} → ${fmtYuan(current)}。`);
+      }
+    });
+  }
+
+  const closeMonth = () => {
+    setMonthStatus((prev) => ({ ...prev, [sel]: 'closed' }));
+    setCloseCheckOpen(false);
+  };
+  const reopenMonth = () => setMonthStatus((prev) => ({ ...prev, [sel]: 'draft' }));
+
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-2 flex-wrap">
         <span className="text-sm text-slate-500">结账月份</span>
-        <select value={sel || ''} onChange={(e) => setSel(e.target.value)} className="border border-slate-200 rounded-lg px-3 py-2 text-sm">
+        <select value={sel || ''} onChange={(e) => { setSel(e.target.value); setCloseCheckOpen(false); }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm">
           {months.length === 0 && <option value="">（暂无月份）</option>}
           {months.map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
+        {sel && <span className={`text-xs font-medium px-2 py-1 rounded-full ${isClosed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{isClosed ? '已结账' : '录入中'}</span>}
         <div className="ml-auto flex items-center gap-2">
           <input type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)}
             className="border border-slate-200 rounded-lg px-2 py-2 text-sm" />
@@ -1243,8 +1284,20 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
             <MiniStat label="本月攒的" value={fmtWan(inc - exp)} c="text-indigo-600" />
           </div>
 
+          {isClosed ? (
+            <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+              <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
+              <p className="text-sm text-emerald-800 flex-1">该月份已结账，数据已锁定，避免后续误改。</p>
+              <button onClick={reopenMonth} className="text-sm px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg whitespace-nowrap">重新编辑</button>
+            </div>
+          ) : (
+            <button onClick={() => setCloseCheckOpen(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-medium">
+              <Lock className="w-4 h-4" />完成本月结账
+            </button>
+          )}
+
           <p className="text-xs text-slate-400 bg-white rounded-lg px-3 py-2 border border-slate-200">
-            {sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
+            {isClosed ? '该月份已锁定。需要修正数据时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
           </p>
 
           {closingMembers.map((member) => {
@@ -1281,7 +1334,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
                               </div>
                               <input type="number" aria-label={`${member} ${a.name}`} value={rec[a.id] ?? ''}
                                 onChange={(e) => setVal(a.id, e.target.value)} onBlur={(e) => { if (e.target.value === '') setVal(a.id, 0); }}
-                                className="w-32 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-right" />
+                                disabled={isClosed}
+                                className="w-32 border border-slate-200 rounded-lg px-3 py-1.5 text-sm text-right disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed" />
                             </div>
                           );
                         })}
@@ -1337,6 +1391,38 @@ function Closing({ accounts, setAccounts, records, setRecords, series }) {
             <div className="flex gap-2 justify-end">
               <button onClick={() => setDeleteMonth(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
               <button onClick={() => delMonth(deleteMonth)} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {closeCheckOpen && sel && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertTriangle className={`w-5 h-5 ${closeBlockers.length ? 'text-rose-600' : 'text-amber-600'}`} />
+              <h3 className="font-semibold">结账检查 · {sel}</h3>
+            </div>
+            {closeBlockers.length > 0 ? (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-rose-700 mb-2">以下项目尚未填写，补齐后才能结账：</p>
+                <ul className="space-y-1 text-sm text-rose-700 bg-rose-50 rounded-lg p-3">
+                  {closeBlockers.map((item) => <li key={item}>• {item}</li>)}
+                </ul>
+              </div>
+            ) : (
+              <p className="text-sm text-emerald-700 bg-emerald-50 rounded-lg p-3 mb-4">所有启用账户均已填写，可以结账。</p>
+            )}
+            {closeWarnings.length > 0 ? (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-amber-700 mb-2">请确认以下提醒，确认无误后仍可结账：</p>
+                <ul className="space-y-1 text-sm text-amber-800 bg-amber-50 rounded-lg p-3">
+                  {closeWarnings.map((item, i) => <li key={`${item}-${i}`}>• {item}</li>)}
+                </ul>
+              </div>
+            ) : !closeBlockers.length && <p className="text-sm text-slate-500 mb-4">未发现异常提醒。</p>}
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setCloseCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">{closeBlockers.length ? '返回补充' : '取消'}</button>
+              {!closeBlockers.length && <button onClick={closeMonth} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">确认结账</button>}
             </div>
           </div>
         </div>
