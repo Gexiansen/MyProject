@@ -337,7 +337,7 @@ function FamilyFinance({ onChangePassword }) {
   }, [series, range, latest]);
 
   const fire = useMemo(() => {
-    if (!latest) return { progress: 0, passive: 0, annualExp: 0, target: 0, years: null, invest: 0 };
+    if (!latest) return { progress: 0, passive: 0, annualExp: 0, target: 0, years: null, invest: 0, remaining: 0, passiveGap: 0, coverageMonths: 0, targetMonth: null };
     const last12 = series.slice(-12);
     const avgExp = last12.reduce((s, x) => s + x.exp, 0) / last12.length;
     const avgSaved = last12.reduce((s, x) => s + x.saved, 0) / last12.length;
@@ -349,7 +349,16 @@ function FamilyFinance({ onChangePassword }) {
     const target = rate > 0 ? annualExp / rate : 0;
     const progress = annualExp ? passive / annualExp : 0;
     const years = target <= invest ? 0 : (annualSaved > 0 ? (target - invest) / annualSaved : null);
-    return { progress, passive, annualExp, annualSaved, target, years, invest };
+    const remaining = Math.max(0, target - invest);
+    const passiveGap = Math.max(0, annualExp - passive);
+    const coverageMonths = annualExp > 0 ? progress * 12 : 0;
+    let targetMonth = null;
+    if (years != null) {
+      const [year, month] = latest.month.split('-').map(Number);
+      const monthIndex = year * 12 + month - 1 + Math.ceil(years * 12);
+      targetMonth = `${Math.floor(monthIndex / 12)}-${String(monthIndex % 12 + 1).padStart(2, '0')}`;
+    }
+    return { progress, passive, annualExp, annualSaved, target, years, invest, remaining, passiveGap, coverageMonths, targetMonth };
   }, [series, latest, withdrawalRate]);
 
   const cashflow = useMemo(() => {
@@ -575,6 +584,7 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
 
   const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
   const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
+  const targetMonthText = fire.years === 0 ? '已经达成' : fire.targetMonth || '暂无法估算';
 
   return (
     <div className="space-y-4">
@@ -596,9 +606,16 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
         <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
           <div className="bg-indigo-600 h-3 rounded-full" style={{ width: `${Math.min(100, fire.progress * 100)}%` }} />
         </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-center">
+          <MiniStat label="还差投资本金" value={fmtWan(fire.remaining)} c={fire.remaining > 0 ? 'text-indigo-600' : 'text-emerald-600'} />
+          <MiniStat label="年被动收入缺口" value={fmtWan(fire.passiveGap)} c={fire.passiveGap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
+          <MiniStat label="每年可覆盖支出" value={`${fire.coverageMonths.toFixed(1)}个月`} c="text-sky-600" />
+          <MiniStat label="预计达成月份" value={targetMonthText} c={fire.targetMonth ? 'text-indigo-600' : 'text-slate-500'} />
+        </div>
         <div className="mt-3 text-xs text-slate-500 space-y-1">
           <p>投资本金 {fmtWan(latest.invest)} × 提取率 {withdrawalRate}% = 年被动收入 {fmtWan(fire.passive)}</p>
           <p>目标数字 {fmtWan(fire.target)}（年支出 ÷ 提取率，分母不含自住房）· <span className="text-indigo-600 font-medium">{yearsText}</span></p>
+          <p>预计月份从最新结账月 {latest.month} 起，按近 {Math.min(12, chartData.length)} 个月平均结余线性推算，不计未来投资收益和支出变化。</p>
         </div>
         <div className="flex items-center gap-2 mt-3">
           <span className="text-xs text-slate-500">提取率</span>
