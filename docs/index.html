@@ -266,6 +266,8 @@ function FamilyFinance({ onChangePassword }) {
   const [monthStatus, setMonthStatus] = useState(() =>
     saved && saved.monthStatus && typeof saved.monthStatus === 'object' ? saved.monthStatus : {}
   );
+  const [goals, setGoals] = useState(() => saved && Array.isArray(saved.goals) ? saved.goals : []);
+  const [monthMeta, setMonthMeta] = useState(() => saved && saved.monthMeta && typeof saved.monthMeta === 'object' ? saved.monthMeta : {});
   const [tab, setTab] = useState('overview');
   const [range, setRange] = useState('1y');
   const [saveStatus, setSaveStatus] = useState('');
@@ -275,14 +277,14 @@ function FamilyFinance({ onChangePassword }) {
 
   useEffect(() => {
     try {
-      const payload = JSON.stringify({ accounts, records, withdrawalRate, monthStatus });
+      const payload = JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta });
       localStorage.setItem(STORAGE_KEY, payload);
       if (localStorage.getItem(STORAGE_KEY) !== payload) throw new Error('保存校验失败');
       setSaveStatus('saved');
       const t = setTimeout(() => setSaveStatus(''), 1500);
       return () => clearTimeout(t);
     } catch (e) { setSaveStatus('error'); }
-  }, [accounts, records, withdrawalRate, monthStatus]);
+  }, [accounts, records, withdrawalRate, monthStatus, goals, monthMeta]);
 
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
@@ -316,7 +318,13 @@ function FamilyFinance({ onChangePassword }) {
           const current = Number(rec[a.id]) || 0;
           const previous = Number(previousRec[a.id]) || 0;
           const contribution = a.type === 'liability' ? previous - current : current - previous;
-          return { name: `${a.member} · ${a.name}`, contribution };
+          return {
+            accountId: a.id,
+            name: `${a.member} · ${a.name}`,
+            type: a.type,
+            contribution,
+            reason: monthMeta[m]?.changeReasons?.[a.id] || '',
+          };
         })
         .filter((d) => d.contribution !== 0)
         .sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution)) : [];
@@ -327,7 +335,7 @@ function FamilyFinance({ onChangePassword }) {
       prevNW = nw;
     });
     return out;
-  }, [accounts, records]);
+  }, [accounts, records, monthMeta]);
 
   const latest = series[series.length - 1];
 
@@ -398,7 +406,7 @@ function FamilyFinance({ onChangePassword }) {
   }, [series]);
 
   const exportData = () => {
-    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate, monthStatus }, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -417,6 +425,8 @@ function FamilyFinance({ onChangePassword }) {
         if (obj.records) setRecords(obj.records);
         if (obj.withdrawalRate) setWithdrawalRate(obj.withdrawalRate);
         setMonthStatus(obj.monthStatus && typeof obj.monthStatus === 'object' ? obj.monthStatus : {});
+        setGoals(Array.isArray(obj.goals) ? obj.goals : []);
+        setMonthMeta(obj.monthMeta && typeof obj.monthMeta === 'object' ? obj.monthMeta : {});
       } catch { /* ignore */ }
     };
     reader.readAsText(f);
@@ -428,6 +438,8 @@ function FamilyFinance({ onChangePassword }) {
     setRecords({ ...demo.records });
     setWithdrawalRate(4);
     setMonthStatus({});
+    setGoals([]);
+    setMonthMeta({});
     setResetOpen(false);
     setTab('overview');
   };
@@ -435,6 +447,8 @@ function FamilyFinance({ onChangePassword }) {
     setAccounts([]);
     setRecords({});
     setMonthStatus({});
+    setGoals([]);
+    setMonthMeta({});
     setResetOpen(false);
     setTab('accounts');
   };
@@ -443,6 +457,7 @@ function FamilyFinance({ onChangePassword }) {
     { key: 'overview', label: '总览', icon: Home },
     { key: 'accounts', label: '账户管理', icon: ListChecks },
     { key: 'closing', label: '月度结账', icon: CalendarClock },
+    { key: 'goals', label: '家庭目标', icon: Target },
     { key: 'annual', label: '年度小结', icon: BarChart3 },
   ];
 
@@ -497,8 +512,9 @@ function FamilyFinance({ onChangePassword }) {
         )}
         {tab === 'closing' && (
           <Closing accounts={accounts} setAccounts={setAccounts} records={records} setRecords={setRecords}
-            series={series} monthStatus={monthStatus} setMonthStatus={setMonthStatus} />
+            series={series} monthStatus={monthStatus} setMonthStatus={setMonthStatus} monthMeta={monthMeta} setMonthMeta={setMonthMeta} />
         )}
+        {tab === 'goals' && <Goals goals={goals} setGoals={setGoals} />}
         {tab === 'annual' && <Annual annual={annual} />}
       </main>
 
@@ -612,10 +628,48 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
     detail: `${latest.topInvName || '最大投资账户'}占投资资产 ${(latest.concentration * 100).toFixed(0)}%，高于提示线 50%。`,
     tone: 'amber',
   });
+  const memberSummary = ['老公', '老婆', '共同'].map((member) => {
+    const totals = { assets: 0, liabilities: 0, income: 0, expenses: 0 };
+    accounts.filter((a) => a.member === member).forEach((a) => {
+      let value = rec[a.id];
+      if (value == null) value = a.type === 'expense' && a.isFixed && isActive(a) ? a.fixedAmount : 0;
+      value = Number(value) || 0;
+      if (a.type === 'asset') totals.assets += value;
+      else if (a.type === 'liability') totals.liabilities += value;
+      else if (a.type === 'income') totals.income += value;
+      else if (a.type === 'expense') totals.expenses += value;
+    });
+    return { member, ...totals, netWorth: totals.assets - totals.liabilities, cashflow: totals.income - totals.expenses };
+  });
 
   const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
   const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
   const targetMonthText = fire.years === 0 ? '已经达成' : fire.targetMonth || '暂无法估算';
+  const projectFireScenario = (annualReturn, annualExpenseGrowth) => {
+    const rate = withdrawalRate / 100;
+    if (!(rate > 0)) return null;
+    let balance = Math.max(0, fire.invest);
+    let annualExpense = Math.max(0, fire.annualExp);
+    const monthlySaving = fire.annualSaved / 12;
+    const monthlyReturn = Math.pow(1 + annualReturn, 1 / 12) - 1;
+    const monthlyExpenseGrowth = Math.pow(1 + annualExpenseGrowth, 1 / 12) - 1;
+    if (balance >= annualExpense / rate) return { months: 0, month: latest.month };
+    for (let months = 1; months <= 80 * 12; months += 1) {
+      balance = Math.max(0, balance * (1 + monthlyReturn) + monthlySaving);
+      annualExpense *= 1 + monthlyExpenseGrowth;
+      if (balance >= annualExpense / rate) {
+        const [year, month] = latest.month.split('-').map(Number);
+        const monthIndex = year * 12 + month - 1 + months;
+        return { months, month: `${Math.floor(monthIndex / 12)}-${String(monthIndex % 12 + 1).padStart(2, '0')}` };
+      }
+    }
+    return null;
+  };
+  const fireScenarios = [
+    { name: '保守', annualReturn: 0.02, expenseGrowth: 0.03, tone: 'border-slate-200 bg-slate-50' },
+    { name: '基准', annualReturn: 0.04, expenseGrowth: 0.02, tone: 'border-indigo-200 bg-indigo-50' },
+    { name: '乐观', annualReturn: 0.06, expenseGrowth: 0.02, tone: 'border-emerald-200 bg-emerald-50' },
+  ].map((scenario) => ({ ...scenario, result: projectFireScenario(scenario.annualReturn, scenario.expenseGrowth) }));
 
   return (
     <div className="space-y-4">
@@ -680,6 +734,19 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
           <span className="text-xs font-medium w-10 text-right">{withdrawalRate}%</span>
         </div>
         <p className="text-xs text-slate-400 mt-1">当前提取率{rateHint}。提取率越高，进度越好看，但长期可持续性越低。</p>
+        <div className="mt-4 pt-3 border-t border-slate-100">
+          <div className="text-sm font-medium text-slate-700 mb-2">情景推演 · 复利与支出增长</div>
+          <div className="grid sm:grid-cols-3 gap-2">
+            {fireScenarios.map((scenario) => (
+              <div key={scenario.name} className={`rounded-lg border p-3 ${scenario.tone}`}>
+                <div className="flex items-center justify-between"><span className="text-sm font-medium text-slate-700">{scenario.name}</span><span className="text-xs text-slate-500">收益 {(scenario.annualReturn * 100).toFixed(0)}%</span></div>
+                <div className="text-lg font-bold text-indigo-600 mt-1">{scenario.result ? scenario.result.month : '暂无法达成'}</div>
+                <p className="text-xs text-slate-500 mt-1">{scenario.result ? scenario.result.months === 0 ? '当前已覆盖目标' : `约 ${(scenario.result.months / 12).toFixed(1)} 年` : '80 年内未达到'} · 支出年增 {(scenario.expenseGrowth * 100).toFixed(0)}%</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-slate-400 mt-2">以上仅用于观察假设变化的影响：按当前月结余持续投入、收益按月复利、生活支出持续增长；未计税费、投资波动和家庭计划变化，不是收益承诺。</p>
+        </div>
       </div>
 
       <div className={`rounded-xl p-4 border ${cashflow.disposable < 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
@@ -824,7 +891,7 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
             {latest.drivers.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {latest.drivers.slice(0, 3).map((d) => (
-                  <span key={d.name} className="text-xs bg-slate-50 border border-slate-200 rounded-full px-2 py-1 text-slate-600">{d.name} {yuanSign(d.contribution)}</span>
+                  <span key={d.accountId} className="text-xs bg-slate-50 border border-slate-200 rounded-full px-2 py-1 text-slate-600">{d.name} {yuanSign(d.contribution)}{d.reason ? ` · ${d.reason}` : ''}</span>
                 ))}
               </div>
             )}
@@ -841,6 +908,29 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
 
       {moreOpen && (
         <div className="space-y-4">
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="font-semibold mb-1">成员归属摘要 · {latest.month}</div>
+            <p className="text-xs text-slate-400 mb-3">按账户管理中的成员归属汇总最新月份数据</p>
+            <div className="grid sm:grid-cols-3 gap-3">
+              {memberSummary.map((summary) => (
+                <div key={summary.member} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="font-medium text-slate-700 mb-2">{summary.member}</div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                    <div><div className="text-slate-400">净资产</div><div className="font-medium text-indigo-600">{fmtWan(summary.netWorth)}</div></div>
+                    <div><div className="text-slate-400">总负债</div><div className="font-medium text-rose-600">{fmtWan(summary.liabilities)}</div></div>
+                    <div><div className="text-slate-400">本月收入</div><div className="font-medium text-emerald-600">{fmtWan(summary.income)}</div></div>
+                    <div><div className="text-slate-400">本月支出</div><div className="font-medium text-amber-600">{fmtWan(summary.expenses)}</div></div>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">归属收支差</span>
+                    <span className={`font-medium ${summary.cashflow >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>{wanSign(summary.cashflow)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <p className="text-xs text-slate-400 mt-2">共同支出不会拆分到夫妻名下，因此“归属收支差”只反映账户分类，不代表个人贡献或实际分摊。</p>
+          </div>
+
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="font-semibold mb-1">资产结构变化</div>
             <p className="text-xs text-slate-400 mb-2">现金、投资与固定资产占资产总额的比例</p>
@@ -946,7 +1036,7 @@ function GrowthTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   const d = payload[0].payload;
   const driverRows = (d.drivers || []).slice(0, 3).map((driver) => ({
-    label: driver.name,
+    label: driver.reason ? `${driver.name} · ${driver.reason}` : driver.name,
     value: yuanSign(driver.contribution),
     className: driver.contribution >= 0 ? 'text-emerald-600' : 'text-rose-600',
   }));
@@ -1275,11 +1365,13 @@ function Field({ label, children }) {
 }
 
 // ---------- 月度结账 ----------
-function Closing({ accounts, setAccounts, records, setRecords, series, monthStatus, setMonthStatus }) {
+function Closing({ accounts, setAccounts, records, setRecords, series, monthStatus, setMonthStatus, monthMeta, setMonthMeta }) {
   const months = Object.keys(records).sort();
   const [sel, setSel] = useState(months[months.length - 1]);
   const [deleteMonth, setDeleteMonth] = useState(null);
   const [closeCheckOpen, setCloseCheckOpen] = useState(false);
+  const [actionDraft, setActionDraft] = useState('');
+  const [deleteAction, setDeleteAction] = useState(null);
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
@@ -1290,6 +1382,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const previousRec = records[previousMonth] || {};
   const selectedSummary = series.find((s) => s.month === sel);
   const isClosed = monthStatus[sel] === 'closed';
+  const currentActions = Array.isArray(monthMeta[sel]?.actions) ? monthMeta[sel].actions : [];
+  const previousActions = Array.isArray(monthMeta[previousMonth]?.actions) ? monthMeta[previousMonth].actions : [];
+  useEffect(() => { setActionDraft(''); }, [sel]);
   const setVal = (id, v) => {
     if (!sel || isClosed) return;
     const value = v === '' ? '' : (Number(v) || 0);
@@ -1325,6 +1420,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       return copy;
     });
     setMonthStatus((prev) => {
+      const copy = { ...prev };
+      delete copy[m];
+      return copy;
+    });
+    setMonthMeta((prev) => {
       const copy = { ...prev };
       delete copy[m];
       return copy;
@@ -1375,6 +1475,29 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
     setCloseCheckOpen(false);
   };
   const reopenMonth = () => setMonthStatus((prev) => ({ ...prev, [sel]: 'draft' }));
+  const updateActions = (month, updater) => setMonthMeta((prev) => {
+    const meta = prev[month] || {};
+    const actions = Array.isArray(meta.actions) ? meta.actions : [];
+    return { ...prev, [month]: { ...meta, actions: updater(actions) } };
+  });
+  const addAction = () => {
+    const text = actionDraft.trim();
+    if (!sel || !text || currentActions.length >= 2) return;
+    updateActions(sel, (actions) => [...actions, { id: `action_${Date.now()}`, text, done: false }]);
+    setActionDraft('');
+  };
+  const toggleAction = (month, id) => updateActions(month, (actions) => actions.map((action) => action.id === id ? { ...action, done: !action.done } : action));
+  const confirmDeleteAction = () => {
+    updateActions(deleteAction.month, (actions) => actions.filter((action) => action.id !== deleteAction.id));
+    setDeleteAction(null);
+  };
+  const setChangeReason = (accountId, reason) => setMonthMeta((prev) => {
+    const meta = prev[sel] || {};
+    const changeReasons = { ...(meta.changeReasons || {}) };
+    if (reason) changeReasons[accountId] = reason;
+    else delete changeReasons[accountId];
+    return { ...prev, [sel]: { ...meta, changeReasons } };
+  });
 
   return (
     <div className="space-y-4">
@@ -1412,7 +1535,26 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 {' = '}结余 <span className="text-emerald-600">{yuanSign(selectedSummary.saved)}</span>
                 {' + '}非收支变化 <span className={selectedSummary.nonCashChange >= 0 ? 'text-amber-600' : 'text-rose-600'}>{yuanSign(selectedSummary.nonCashChange)}</span>
               </p>
-              {selectedSummary.drivers.length > 0 && <p className="text-xs text-slate-400 mt-1">主要变化：{selectedSummary.drivers.slice(0, 3).map((d) => `${d.name} ${yuanSign(d.contribution)}`).join(' · ')}</p>}
+              {selectedSummary.drivers.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <div className="text-xs text-slate-400">主要变化账户 · 原因可选</div>
+                  {selectedSummary.drivers.slice(0, 3).map((driver) => (
+                    <div key={driver.accountId} className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+                      <span className="flex-1 text-slate-600">{driver.name} <span className={driver.contribution >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{yuanSign(driver.contribution)}</span></span>
+                      <select value={driver.reason} onChange={(e) => setChangeReason(driver.accountId, e.target.value)} aria-label={`${driver.name} 变化原因`}
+                        className="sm:w-40 border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600">
+                        <option value="">未标注</option>
+                        <option value="市场涨跌">市场涨跌</option>
+                        <option value="主动转入/转出">主动转入／转出</option>
+                        <option value="估值调整">估值调整</option>
+                        <option value="偿还/新增负债">偿还／新增负债</option>
+                        <option value="数据修正">数据修正</option>
+                        <option value="其他">其他</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1431,6 +1573,40 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           <p className="text-xs text-slate-400 bg-white rounded-lg px-3 py-2 border border-slate-200">
             {isClosed ? '该月份已锁定。需要修正数据时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
           </p>
+
+          {previousActions.length > 0 && (
+            <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div className="text-sm font-semibold text-slate-700 mb-1">上月行动复盘 · {previousMonth}</div>
+              <p className="text-xs text-slate-400 mb-2">在本月结账时确认上月行动是否完成</p>
+              <div className="space-y-2">
+                {previousActions.map((action) => (
+                  <label key={action.id} className="flex items-start gap-2 text-sm text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(previousMonth, action.id)} className="mt-0.5 accent-indigo-600" />
+                    <span className={action.done ? 'line-through text-slate-400' : ''}>{action.text}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="text-sm font-semibold text-slate-700 mb-1">下月行动 · 最多 2 项</div>
+            <p className="text-xs text-slate-400 mb-2">行动会在下个月结账时自动出现，形成复盘闭环。</p>
+            {currentActions.length > 0 && <div className="space-y-2 mb-3">
+              {currentActions.map((action) => (
+                <div key={action.id} className="flex items-start gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(sel, action.id)} className="mt-0.5 accent-indigo-600" />
+                  <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}</span>
+                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>}
+            {currentActions.length < 2 && <div className="flex gap-2">
+              <input value={actionDraft} onChange={(e) => setActionDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addAction(); }} placeholder="例如：共同账户增加 5,000 元现金"
+                className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+              <button onClick={addAction} className="shrink-0 bg-indigo-600 text-white rounded-lg px-3 py-2 text-sm">添加</button>
+            </div>}
+          </div>
 
           {closingMembers.map((member) => {
             const memberAccounts = accounts.filter((a) => a.member === member && isActive(a));
@@ -1527,6 +1703,15 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           </div>
         </div>
       )}
+      {deleteAction && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 className="font-semibold">删除行动项</h3></div>
+            <p className="text-sm text-slate-600 mb-4">删除后，该行动不会在下个月结账时出现。</p>
+            <div className="flex gap-2 justify-end"><button onClick={() => setDeleteAction(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={confirmDeleteAction} className="px-4 py-2 text-sm bg-rose-600 text-white rounded-lg">确认删除</button></div>
+          </div>
+        </div>
+      )}
       {closeCheckOpen && sel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
@@ -1556,6 +1741,131 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               <button onClick={() => setCloseCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">{closeBlockers.length ? '返回补充' : '取消'}</button>
               {!closeBlockers.length && <button onClick={closeMonth} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">确认结账</button>}
             </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- 家庭目标 ----------
+function Goals({ goals, setGoals }) {
+  const emptyDraft = { name: '', targetAmount: '', currentAmount: '', targetDate: '', priority: 'medium' };
+  const [draft, setDraft] = useState(emptyDraft);
+  const [editingId, setEditingId] = useState(null);
+  const [error, setError] = useState('');
+  const [deleteId, setDeleteId] = useState(null);
+  const now = new Date();
+  const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
+  const priorityLabel = { high: '优先', medium: '正常', low: '以后' };
+  const priorityTone = { high: 'bg-rose-50 text-rose-600', medium: 'bg-indigo-50 text-indigo-600', low: 'bg-slate-100 text-slate-500' };
+  const sortedGoals = goals.slice().sort((a, b) => {
+    const order = { high: 0, medium: 1, low: 2 };
+    return (order[a.priority] ?? 1) - (order[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || ''));
+  });
+
+  const saveGoal = () => {
+    const name = draft.name.trim();
+    const targetAmount = Number(draft.targetAmount);
+    const currentAmount = Number(draft.currentAmount) || 0;
+    if (!name || !(targetAmount > 0) || currentAmount < 0 || !draft.targetDate) {
+      setError('请填写目标名称、目标金额和目标日期，当前已准备金额不能为负数。');
+      return;
+    }
+    const goal = { name, targetAmount, currentAmount, targetDate: draft.targetDate, priority: draft.priority };
+    if (editingId) setGoals((prev) => prev.map((item) => item.id === editingId ? { ...item, ...goal } : item));
+    else setGoals((prev) => [...prev, { id: `goal_${Date.now()}`, ...goal }]);
+    setDraft(emptyDraft);
+    setEditingId(null);
+    setError('');
+  };
+  const editGoal = (goal) => {
+    setDraft({ name: goal.name, targetAmount: String(goal.targetAmount), currentAmount: String(goal.currentAmount || ''), targetDate: goal.targetDate, priority: goal.priority || 'medium' });
+    setEditingId(goal.id);
+    setError('');
+  };
+  const cancelEdit = () => { setDraft(emptyDraft); setEditingId(null); setError(''); };
+  const confirmDelete = () => {
+    setGoals((prev) => prev.filter((goal) => goal.id !== deleteId));
+    if (editingId === deleteId) cancelEdit();
+    setDeleteId(null);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="font-semibold mb-1">{editingId ? '编辑家庭目标' : '新增家庭目标'}</div>
+        <p className="text-xs text-slate-400 mb-3">目标金额用于衡量家庭计划，不会计入资产或影响月度结账。</p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="text-sm text-slate-600">目标名称
+            <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} placeholder="例如：6个月应急资金"
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
+          </label>
+          <label className="text-sm text-slate-600">目标日期
+            <input type="month" value={draft.targetDate} onChange={(e) => setDraft((d) => ({ ...d, targetDate: e.target.value }))}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
+          </label>
+          <label className="text-sm text-slate-600">目标金额
+            <input type="number" min="0" inputMode="decimal" value={draft.targetAmount} onChange={(e) => setDraft((d) => ({ ...d, targetAmount: e.target.value }))} placeholder="0"
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
+          </label>
+          <label className="text-sm text-slate-600">当前已准备
+            <input type="number" min="0" inputMode="decimal" value={draft.currentAmount} onChange={(e) => setDraft((d) => ({ ...d, currentAmount: e.target.value }))} placeholder="0"
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
+          </label>
+          <label className="text-sm text-slate-600">优先级
+            <select value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800 bg-white">
+              <option value="high">优先</option><option value="medium">正常</option><option value="low">以后</option>
+            </select>
+          </label>
+        </div>
+        {error && <p className="text-xs text-rose-600 mt-2">{error}</p>}
+        <div className="flex gap-2 mt-3">
+          <button onClick={saveGoal} className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2">{editingId ? '更新目标' : '添加目标'}</button>
+          {editingId && <button onClick={cancelEdit} className="text-sm text-slate-500 hover:bg-slate-100 rounded-lg px-4 py-2">取消</button>}
+        </div>
+      </div>
+
+      {sortedGoals.length === 0 ? (
+        <div className="bg-white rounded-xl p-8 border border-slate-200 text-center text-sm text-slate-400">暂无家庭目标，可以先从应急资金或近期生活计划开始。</div>
+      ) : (
+        <div className="grid md:grid-cols-2 gap-3">
+          {sortedGoals.map((goal) => {
+            const targetAmount = Number(goal.targetAmount) || 0;
+            const currentAmount = Math.max(0, Number(goal.currentAmount) || 0);
+            const gap = Math.max(0, targetAmount - currentAmount);
+            const [targetYear, targetMonth] = String(goal.targetDate || '').split('-').map(Number);
+            const targetMonthIndex = targetYear * 12 + targetMonth - 1;
+            const monthsLeft = Number.isFinite(targetMonthIndex) ? targetMonthIndex - currentMonthIndex : 0;
+            const monthlyNeed = monthsLeft > 0 ? gap / monthsLeft : null;
+            const progress = targetAmount > 0 ? currentAmount / targetAmount : 0;
+            return <div key={goal.id} className="bg-white rounded-xl p-4 border border-slate-200">
+              <div className="flex items-start gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span></div>
+                  <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}</p>
+                </div>
+                <button onClick={() => editGoal(goal)} className="text-slate-400 hover:text-indigo-600" title={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => setDeleteId(goal.id)} className="text-slate-400 hover:text-rose-600" title={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
+              </div>
+              <div className="flex justify-between text-sm mt-3"><span className="text-slate-500">{fmtWan(currentAmount)} / {fmtWan(targetAmount)}</span><span className="font-medium text-indigo-600">{(progress * 100).toFixed(1)}%</span></div>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
+              <div className="grid grid-cols-2 gap-2 mt-3 text-center">
+                <MiniStat label="还差" value={fmtWan(gap)} c={gap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
+                <MiniStat label="按期每月需准备" value={gap === 0 ? '已完成' : monthlyNeed == null ? '已到期' : fmtWan(monthlyNeed)} c={gap === 0 ? 'text-emerald-600' : 'text-indigo-600'} />
+              </div>
+            </div>;
+          })}
+        </div>
+      )}
+
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 className="font-semibold">删除家庭目标</h3></div>
+            <p className="text-sm text-slate-600 mb-4">删除后无法恢复，但不会影响账户和月度数据。</p>
+            <div className="flex gap-2"><button onClick={confirmDelete} className="flex-1 bg-rose-600 text-white rounded-lg py-2 text-sm">确认删除</button><button onClick={() => setDeleteId(null)} className="flex-1 bg-slate-100 rounded-lg py-2 text-sm">取消</button></div>
           </div>
         </div>
       )}
