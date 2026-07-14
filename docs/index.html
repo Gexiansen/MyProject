@@ -167,6 +167,19 @@ function nextMonth(key) {
   m += 1; if (m > 12) { m = 1; y += 1; }
   return `${y}-${String(m).padStart(2, '0')}`;
 }
+function getGoalProgress(goal, currentMonthIndex) {
+  const targetAmount = Number(goal.targetAmount) || 0;
+  const currentAmount = Math.max(0, Number(goal.currentAmount) || 0);
+  const gap = Math.max(0, targetAmount - currentAmount);
+  const [targetYear, targetMonth] = String(goal.targetDate || '').split('-').map(Number);
+  const targetMonthIndex = targetYear * 12 + targetMonth - 1;
+  const monthsLeft = Number.isFinite(targetMonthIndex) ? targetMonthIndex - currentMonthIndex : 0;
+  return {
+    targetAmount, currentAmount, gap, monthsLeft,
+    monthlyNeed: gap === 0 ? 0 : monthsLeft > 0 ? gap / monthsLeft : null,
+    progress: targetAmount > 0 ? currentAmount / targetAmount : 0,
+  };
+}
 
 // ---------- 本地存储：自动保存 / 读取 ----------
 const STORAGE_KEY = 'family-finance-v1';
@@ -504,7 +517,7 @@ function FamilyFinance({ onChangePassword }) {
         {tab === 'overview' && (
           <Overview latest={latest} chartData={chartData} fire={fire} cashflow={cashflow}
             withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
-            accounts={accounts} records={records} range={range} setRange={setRange} />
+            accounts={accounts} records={records} range={range} setRange={setRange} goals={goals} setTab={setTab} />
         )}
         {tab === 'accounts' && (
           <Accounts accounts={accounts} setAccounts={setAccounts} setRecords={setRecords}
@@ -544,7 +557,7 @@ function FamilyFinance({ onChangePassword }) {
 }
 
 // ---------- 总览 ----------
-function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange }) {
+function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab }) {
   const [expandCat, setExpandCat] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   if (!latest) return <p className="text-slate-500">暂无数据，请到「账户管理」新增账户，并在「月度结账」结算新月份。</p>;
@@ -641,6 +654,19 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
     });
     return { member, ...totals, netWorth: totals.assets - totals.liabilities, cashflow: totals.income - totals.expenses };
   });
+  const goalNow = new Date();
+  const goalCurrentMonthIndex = goalNow.getFullYear() * 12 + goalNow.getMonth();
+  const goalPriorityOrder = { high: 0, medium: 1, low: 2 };
+  const goalPlans = goals
+    .filter((goal) => goal && (Number(goal.targetAmount) || 0) > 0)
+    .map((goal) => ({ ...goal, ...getGoalProgress(goal, goalCurrentMonthIndex) }))
+    .sort((a, b) => (goalPriorityOrder[a.priority] ?? 1) - (goalPriorityOrder[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || '')));
+  const activeGoalPlans = goalPlans.filter((goal) => goal.gap > 0);
+  const completedGoalCount = goalPlans.length - activeGoalPlans.length;
+  const overdueGoalCount = activeGoalPlans.filter((goal) => goal.monthlyNeed == null).length;
+  const totalMonthlyNeed = activeGoalPlans.reduce((sum, goal) => sum + (goal.monthlyNeed || 0), 0);
+  const recentAvgSaved = recentMonths.length ? recentMonths.reduce((sum, item) => sum + item.saved, 0) / recentMonths.length : 0;
+  const goalMonthlyBalance = recentAvgSaved - totalMonthlyNeed;
 
   const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
   const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
@@ -681,6 +707,43 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
         <StatCard icon={Target} label="总负债" value={fmtWan(latest.liab)} tone="rose" />
         <StatCard icon={Percent} label={`集中度 · ${latest.topInvName || '—'}`} value={(latest.concentration * 100).toFixed(0) + '%'} tone="violet" sub="最大持仓占投资比" />
         <StatCard icon={Target} label="自由目标数字" value={fmtWan(fire.target)} tone="sky" sub={`年支出 ${fmtWan(fire.annualExp)}`} />
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center gap-2 font-semibold mb-2">
+          <Target className="w-5 h-5 text-indigo-600" />家庭目标与现金流
+          {goalPlans.length > 0 && <span className="ml-auto text-xs text-slate-400">{completedGoalCount} 个已完成 · {activeGoalPlans.length} 个进行中</span>}
+        </div>
+        {goalPlans.length === 0 ? (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <p className="text-sm text-slate-500 flex-1">尚未设置家庭目标，暂时无法判断当前结余能否支撑想要的生活计划。</p>
+            <button onClick={() => setTab('goals')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100">去设置目标</button>
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+              <MiniStat label={`近 ${recentMonths.length} 月平均结余`} value={fmtWan(recentAvgSaved)} c={recentAvgSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
+              <MiniStat label="目标每月需准备" value={fmtWan(totalMonthlyNeed)} c="text-indigo-600" />
+              <MiniStat label={overdueGoalCount > 0 ? '当前状态' : goalMonthlyBalance >= 0 ? '每月可剩余' : '每月资金缺口'}
+                value={overdueGoalCount > 0 ? `${overdueGoalCount} 个已到期` : fmtWan(Math.abs(goalMonthlyBalance))}
+                c={overdueGoalCount > 0 || goalMonthlyBalance < 0 ? 'text-rose-600' : 'text-emerald-600'} />
+            </div>
+            {activeGoalPlans.length > 0 ? <div className="space-y-2">
+              {activeGoalPlans.slice(0, 3).map((goal) => (
+                <div key={goal.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
+                  <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium text-slate-700 truncate">{goal.name}</span><span className="text-slate-500 shrink-0">{(goal.progress * 100).toFixed(1)}%</span></div>
+                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, goal.progress * 100)}%` }} /></div>
+                  <div className="flex flex-wrap justify-between gap-1 text-xs text-slate-400 mt-1.5"><span>还差 {fmtWan(goal.gap)} · 目标 {goal.targetDate}</span><span className={goal.monthlyNeed == null ? 'text-rose-600' : 'text-indigo-600'}>{goal.monthlyNeed == null ? '已到期' : `每月需 ${fmtWan(goal.monthlyNeed)}`}</span></div>
+                </div>
+              ))}
+              {activeGoalPlans.length > 3 && <p className="text-xs text-slate-400">另有 {activeGoalPlans.length - 3} 个进行中的目标，请到「家庭目标」查看。</p>}
+            </div> : <p className="text-sm text-emerald-600">所有家庭目标均已完成。</p>}
+            <div className="flex items-start justify-between gap-3 mt-2">
+              <p className="text-xs text-slate-400">按当前已准备金额和目标日期倒推；平均结余取最近 12 个月，不计目标资金未来收益。</p>
+              <button onClick={() => setTab('goals')} className="shrink-0 text-xs text-indigo-600">管理目标</button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -1832,14 +1895,7 @@ function Goals({ goals, setGoals }) {
       ) : (
         <div className="grid md:grid-cols-2 gap-3">
           {sortedGoals.map((goal) => {
-            const targetAmount = Number(goal.targetAmount) || 0;
-            const currentAmount = Math.max(0, Number(goal.currentAmount) || 0);
-            const gap = Math.max(0, targetAmount - currentAmount);
-            const [targetYear, targetMonth] = String(goal.targetDate || '').split('-').map(Number);
-            const targetMonthIndex = targetYear * 12 + targetMonth - 1;
-            const monthsLeft = Number.isFinite(targetMonthIndex) ? targetMonthIndex - currentMonthIndex : 0;
-            const monthlyNeed = monthsLeft > 0 ? gap / monthsLeft : null;
-            const progress = targetAmount > 0 ? currentAmount / targetAmount : 0;
+            const { targetAmount, currentAmount, gap, monthlyNeed, progress } = getGoalProgress(goal, currentMonthIndex);
             return <div key={goal.id} className="bg-white rounded-xl p-4 border border-slate-200">
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
