@@ -581,6 +581,37 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
   const avgSavingRate = validSavingRates.length ? validSavingRates.reduce((sum, s) => sum + s.储蓄率, 0) / validSavingRates.length : null;
   const concTrend = chartData.map((s) => ({ month: s.label, 集中度: s.concentration, 最大持仓: s.topInvName || '—' }));
   const periodGrowth = chartData.length > 1 ? chartData[chartData.length - 1].nw - chartData[0].nw : 0;
+  const previousMonth = chartData.length > 1 ? chartData[chartData.length - 2] : null;
+  const recentMonths = chartData.slice(-12);
+  const recentAvgExp = recentMonths.length ? recentMonths.reduce((sum, s) => sum + s.exp, 0) / recentMonths.length : 0;
+  const cashBufferMonths = recentAvgExp > 0 ? latest.cash / recentAvgExp : null;
+  const liabilityIncrease = previousMonth ? latest.liab - previousMonth.liab : 0;
+  const attentionItems = [];
+  if (latest.saved < 0) attentionItems.push({
+    title: '先恢复正结余',
+    detail: `本月支出比收入多 ${fmtWan(Math.abs(latest.saved))}，下月优先检查可调整支出。`,
+    tone: 'rose',
+  });
+  if (latest.saved >= 0 && latest.netChange < 0) attentionItems.push({
+    title: '核对净资产下滑',
+    detail: `本月结余 ${fmtWan(latest.saved)}，但净资产仍下降 ${fmtWan(Math.abs(latest.netChange))}，可结合“非收支变化”检查原因。`,
+    tone: 'amber',
+  });
+  if (cashBufferMonths != null && cashBufferMonths < 3) attentionItems.push({
+    title: '关注现金缓冲',
+    detail: `现金类资产按近 ${recentMonths.length} 个月平均支出可覆盖 ${cashBufferMonths.toFixed(1)} 个月，低于提示线 3 个月。`,
+    tone: 'amber',
+  });
+  if (liabilityIncrease > 0) attentionItems.push({
+    title: '确认新增负债',
+    detail: `总负债较上月增加 ${fmtWan(liabilityIncrease)}，建议确认是否符合家庭原定安排。`,
+    tone: 'rose',
+  });
+  if (latest.invest > 0 && latest.concentration > 0.5) attentionItems.push({
+    title: '关注投资集中度',
+    detail: `${latest.topInvName || '最大投资账户'}占投资资产 ${(latest.concentration * 100).toFixed(0)}%，高于提示线 50%。`,
+    tone: 'amber',
+  });
 
   const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
   const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
@@ -596,6 +627,31 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
         <StatCard icon={Target} label="总负债" value={fmtWan(latest.liab)} tone="rose" />
         <StatCard icon={Percent} label={`集中度 · ${latest.topInvName || '—'}`} value={(latest.concentration * 100).toFixed(0) + '%'} tone="violet" sub="最大持仓占投资比" />
         <StatCard icon={Target} label="自由目标数字" value={fmtWan(fire.target)} tone="sky" sub={`年支出 ${fmtWan(fire.annualExp)}`} />
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center gap-2 font-semibold mb-3">
+          {attentionItems.length > 0
+            ? <AlertTriangle className="w-5 h-5 text-amber-600" />
+            : <Info className="w-5 h-5 text-emerald-600" />}
+          {latest.month} 财务关注
+          <span className={`ml-auto text-xs font-medium ${attentionItems.length > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+            {attentionItems.length > 0 ? `${attentionItems.length} 项` : '状态平稳'}
+          </span>
+        </div>
+        {attentionItems.length > 0 ? (
+          <div className="grid sm:grid-cols-2 gap-2">
+            {attentionItems.map((item) => (
+              <div key={item.title} className={`rounded-lg border p-3 ${item.tone === 'rose' ? 'bg-rose-50 border-rose-100' : 'bg-amber-50 border-amber-100'}`}>
+                <div className={`text-sm font-medium ${item.tone === 'rose' ? 'text-rose-700' : 'text-amber-700'}`}>{item.title}</div>
+                <p className="text-xs text-slate-600 mt-1 leading-5">{item.detail}</p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-slate-600">本月未触发需要优先关注的项目，继续按当前节奏完成下月结账。</p>
+        )}
+        <p className="text-xs text-slate-400 mt-2">提示规则：负结余、结余为正但净资产下降、现金缓冲低于 3 个月、负债环比增加或单一投资账户占比超过 50%。</p>
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
