@@ -150,6 +150,7 @@ const Lock = icon([['rect',{x:3,y:11,width:18,height:11,rx:2,ry:2}],['path',{d:'
 const CATS = { cash: '现金', investment: '投资', fixed: '固定资产' };
 const MEMBERS = ['共同', '老公', '老婆'];
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#84cc16'];
+const ACTION_METRICS = { none: '不关联指标', saved: '提升月结余', cash: '增加现金', liability: '降低负债' };
 
 const fmtWan = (v) => (v == null ? '-' : (v / 10000).toFixed(1) + '万');
 const wanSign = (v) => (v == null ? '-' : (v >= 0 ? '+' : '') + (v / 10000).toFixed(1) + '万');
@@ -167,9 +168,18 @@ function nextMonth(key) {
   m += 1; if (m > 12) { m = 1; y += 1; }
   return `${y}-${String(m).padStart(2, '0')}`;
 }
-function getGoalProgress(goal, currentMonthIndex) {
+function monthIndexFromKey(key) {
+  const [year, month] = String(key || '').split('-').map(Number);
+  return Number.isFinite(year) && Number.isFinite(month) ? year * 12 + month - 1 : null;
+}
+function resolveGoalCurrentAmount(goal, rec) {
+  const linkedAccountIds = Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [];
+  if (!linkedAccountIds.length) return Math.max(0, Number(goal.currentAmount) || 0);
+  return linkedAccountIds.reduce((sum, accountId) => sum + (Number(rec?.[accountId]) || 0), 0);
+}
+function getGoalProgress(goal, currentMonthIndex, resolvedCurrentAmount) {
   const targetAmount = Number(goal.targetAmount) || 0;
-  const currentAmount = Math.max(0, Number(goal.currentAmount) || 0);
+  const currentAmount = resolvedCurrentAmount == null ? Math.max(0, Number(goal.currentAmount) || 0) : Math.max(0, Number(resolvedCurrentAmount) || 0);
   const gap = Math.max(0, targetAmount - currentAmount);
   const [targetYear, targetMonth] = String(goal.targetDate || '').split('-').map(Number);
   const targetMonthIndex = targetYear * 12 + targetMonth - 1;
@@ -179,6 +189,13 @@ function getGoalProgress(goal, currentMonthIndex) {
     monthlyNeed: gap === 0 ? 0 : monthsLeft > 0 ? gap / monthsLeft : null,
     progress: targetAmount > 0 ? currentAmount / targetAmount : 0,
   };
+}
+function actionMetricChange(metric, before, after) {
+  if (!before || !after) return null;
+  if (metric === 'saved') return after.saved - before.saved;
+  if (metric === 'cash') return after.cash - before.cash;
+  if (metric === 'liability') return before.liab - after.liab;
+  return null;
 }
 
 // ---------- 本地存储：自动保存 / 读取 ----------
@@ -281,6 +298,8 @@ function FamilyFinance({ onChangePassword }) {
   );
   const [goals, setGoals] = useState(() => saved && Array.isArray(saved.goals) ? saved.goals : []);
   const [monthMeta, setMonthMeta] = useState(() => saved && saved.monthMeta && typeof saved.monthMeta === 'object' ? saved.monthMeta : {});
+  const [goalHistory, setGoalHistory] = useState(() => saved && saved.goalHistory && typeof saved.goalHistory === 'object' ? saved.goalHistory : {});
+  const [lastExportAt, setLastExportAt] = useState(() => saved?.lastExportAt || null);
   const [tab, setTab] = useState('overview');
   const [range, setRange] = useState('1y');
   const [saveStatus, setSaveStatus] = useState('');
@@ -290,14 +309,14 @@ function FamilyFinance({ onChangePassword }) {
 
   useEffect(() => {
     try {
-      const payload = JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta });
+      const payload = JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt });
       localStorage.setItem(STORAGE_KEY, payload);
       if (localStorage.getItem(STORAGE_KEY) !== payload) throw new Error('保存校验失败');
       setSaveStatus('saved');
       const t = setTimeout(() => setSaveStatus(''), 1500);
       return () => clearTimeout(t);
     } catch (e) { setSaveStatus('error'); }
-  }, [accounts, records, withdrawalRate, monthStatus, goals, monthMeta]);
+  }, [accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt]);
 
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
@@ -419,13 +438,15 @@ function FamilyFinance({ onChangePassword }) {
   }, [series]);
 
   const exportData = () => {
-    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta }, null, 2)], { type: 'application/json' });
+    const exportedAt = new Date().toISOString();
+    const blob = new Blob([JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt: exportedAt }, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `family-finance-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setLastExportAt(exportedAt);
   };
   const importData = (e) => {
     const f = e.target.files?.[0];
@@ -440,6 +461,8 @@ function FamilyFinance({ onChangePassword }) {
         setMonthStatus(obj.monthStatus && typeof obj.monthStatus === 'object' ? obj.monthStatus : {});
         setGoals(Array.isArray(obj.goals) ? obj.goals : []);
         setMonthMeta(obj.monthMeta && typeof obj.monthMeta === 'object' ? obj.monthMeta : {});
+        setGoalHistory(obj.goalHistory && typeof obj.goalHistory === 'object' ? obj.goalHistory : {});
+        setLastExportAt(obj.lastExportAt || null);
       } catch { /* ignore */ }
     };
     reader.readAsText(f);
@@ -453,6 +476,8 @@ function FamilyFinance({ onChangePassword }) {
     setMonthStatus({});
     setGoals([]);
     setMonthMeta({});
+    setGoalHistory({});
+    setLastExportAt(null);
     setResetOpen(false);
     setTab('overview');
   };
@@ -462,6 +487,8 @@ function FamilyFinance({ onChangePassword }) {
     setMonthStatus({});
     setGoals([]);
     setMonthMeta({});
+    setGoalHistory({});
+    setLastExportAt(null);
     setResetOpen(false);
     setTab('accounts');
   };
@@ -515,9 +542,10 @@ function FamilyFinance({ onChangePassword }) {
 
       <main className="max-w-4xl mx-auto px-4 py-4 pb-16">
         {tab === 'overview' && (
-          <Overview latest={latest} chartData={chartData} fire={fire} cashflow={cashflow}
+          <Overview latest={latest} chartData={chartData} series={series} fire={fire} cashflow={cashflow}
             withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
-            accounts={accounts} records={records} range={range} setRange={setRange} goals={goals} setTab={setTab} />
+            accounts={accounts} records={records} range={range} setRange={setRange} goals={goals} setTab={setTab}
+            monthMeta={monthMeta} lastExportAt={lastExportAt} />
         )}
         {tab === 'accounts' && (
           <Accounts accounts={accounts} setAccounts={setAccounts} setRecords={setRecords}
@@ -525,9 +553,11 @@ function FamilyFinance({ onChangePassword }) {
         )}
         {tab === 'closing' && (
           <Closing accounts={accounts} setAccounts={setAccounts} records={records} setRecords={setRecords}
-            series={series} monthStatus={monthStatus} setMonthStatus={setMonthStatus} monthMeta={monthMeta} setMonthMeta={setMonthMeta} />
+            series={series} monthStatus={monthStatus} setMonthStatus={setMonthStatus} monthMeta={monthMeta} setMonthMeta={setMonthMeta}
+            goals={goals} setGoalHistory={setGoalHistory} />
         )}
-        {tab === 'goals' && <Goals goals={goals} setGoals={setGoals} />}
+        {tab === 'goals' && <Goals goals={goals} setGoals={setGoals} goalHistory={goalHistory} setGoalHistory={setGoalHistory}
+          accounts={accounts} records={records} latest={latest} />}
         {tab === 'annual' && <Annual annual={annual} />}
       </main>
 
@@ -557,7 +587,7 @@ function FamilyFinance({ onChangePassword }) {
 }
 
 // ---------- 总览 ----------
-function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab }) {
+function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab, monthMeta, lastExportAt }) {
   const [expandCat, setExpandCat] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   if (!latest) return <p className="text-slate-500">暂无数据，请到「账户管理」新增账户，并在「月度结账」结算新月份。</p>;
@@ -659,7 +689,7 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
   const goalPriorityOrder = { high: 0, medium: 1, low: 2 };
   const goalPlans = goals
     .filter((goal) => goal && (Number(goal.targetAmount) || 0) > 0)
-    .map((goal) => ({ ...goal, ...getGoalProgress(goal, goalCurrentMonthIndex) }))
+    .map((goal) => ({ ...goal, ...getGoalProgress(goal, goalCurrentMonthIndex, resolveGoalCurrentAmount(goal, rec)) }))
     .sort((a, b) => (goalPriorityOrder[a.priority] ?? 1) - (goalPriorityOrder[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || '')));
   const activeGoalPlans = goalPlans.filter((goal) => goal.gap > 0);
   const completedGoalCount = goalPlans.length - activeGoalPlans.length;
@@ -667,6 +697,44 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
   const totalMonthlyNeed = activeGoalPlans.reduce((sum, goal) => sum + (goal.monthlyNeed || 0), 0);
   const recentAvgSaved = recentMonths.length ? recentMonths.reduce((sum, item) => sum + item.saved, 0) / recentMonths.length : 0;
   const goalMonthlyBalance = recentAvgSaved - totalMonthlyNeed;
+  const previousSeriesMonth = chartData.length > 1 ? chartData[chartData.length - 2].month : null;
+  const previousLatestRec = previousSeriesMonth ? (records[previousSeriesMonth] || {}) : {};
+  const missingLatestAccounts = accounts.filter((account) => isActive(account) && (!Object.prototype.hasOwnProperty.call(rec, account.id) || rec[account.id] === '' || rec[account.id] == null));
+  const unchangedBalanceAccounts = previousSeriesMonth ? accounts.filter((account) => isActive(account) && (account.type === 'asset' || account.type === 'liability')
+    && Object.prototype.hasOwnProperty.call(rec, account.id) && Object.prototype.hasOwnProperty.call(previousLatestRec, account.id)
+    && Number(rec[account.id]) === Number(previousLatestRec[account.id])) : [];
+  const unannotatedLargeDrivers = latest.drivers.filter((driver) => Math.abs(driver.contribution) >= 10000 && !driver.reason);
+  const linkedAccountUsage = {};
+  goals.forEach((goal) => (Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : []).forEach((accountId) => { linkedAccountUsage[accountId] = (linkedAccountUsage[accountId] || 0) + 1; }));
+  const duplicateGoalAccounts = Object.keys(linkedAccountUsage).filter((accountId) => linkedAccountUsage[accountId] > 1);
+  const accountIds = new Set(accounts.map((account) => account.id));
+  const missingGoalAccounts = Object.keys(linkedAccountUsage).filter((accountId) => !accountIds.has(accountId));
+  const exportDate = lastExportAt ? new Date(lastExportAt) : null;
+  const exportDaysAgo = exportDate && !Number.isNaN(exportDate.getTime()) ? Math.floor((Date.now() - exportDate.getTime()) / 86400000) : null;
+  const trustItems = [];
+  if (missingLatestAccounts.length > 0) trustItems.push({ title: '启用账户未填写', detail: `${missingLatestAccounts.length} 个账户在 ${latest.month} 没有完整数值。`, tone: 'rose' });
+  if (unannotatedLargeDrivers.length > 0) trustItems.push({ title: '大额变化未标注', detail: `${unannotatedLargeDrivers.length} 个账户变化超过 1 万元但尚未填写原因。`, tone: 'amber' });
+  if (Math.abs(latest.nonCashChange) > Math.abs(latest.saved) && Math.abs(latest.nonCashChange) >= 10000) trustItems.push({ title: '非收支变化较大', detail: `非收支变化 ${yuanSign(latest.nonCashChange)}，绝对值超过本月结余。`, tone: 'amber' });
+  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '余额连续不变', detail: `${unchangedBalanceAccounts.length} 个资产或负债账户与上月完全相同，请确认不是忘记更新。`, tone: 'slate' });
+  if (monthMeta[latest.month]?.reopenedAt) trustItems.push({ title: '已结账月份重新编辑过', detail: `${latest.month} 曾在结账后重新打开，请确认修正结果。`, tone: 'amber' });
+  if (duplicateGoalAccounts.length > 0) trustItems.push({ title: '目标资金重复计算', detail: `${duplicateGoalAccounts.length} 个资产账户同时关联多个目标。`, tone: 'rose' });
+  if (missingGoalAccounts.length > 0) trustItems.push({ title: '目标关联账户已不存在', detail: `${missingGoalAccounts.length} 个目标资金账户无法在账户管理中找到。`, tone: 'rose' });
+  if (exportDaysAgo == null) trustItems.push({ title: '尚无导出备份记录', detail: '建议完成首次数据导出，并将 JSON 保存在其他位置。', tone: 'slate' });
+  else if (exportDaysAgo > 30) trustItems.push({ title: '备份超过 30 天', detail: `距离上次导出已经 ${exportDaysAgo} 天。`, tone: 'amber' });
+  const actionReviews = [];
+  series.forEach((before, index) => {
+    const next = series[index + 1];
+    const actions = Array.isArray(monthMeta[before.month]?.actions) ? monthMeta[before.month].actions : [];
+    actions.forEach((action) => actionReviews.push({
+      ...action,
+      month: before.month,
+      result: actionMetricChange(action.metric, before, next),
+    }));
+  });
+  const completedActions = actionReviews.filter((action) => action.done === true);
+  const measuredActions = actionReviews.filter((action) => action.result != null);
+  const improvedActions = measuredActions.filter((action) => action.result > 0);
+  const overdueActions = actionReviews.filter((action) => action.month < latest.month && action.done !== true);
 
   const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
   const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
@@ -772,6 +840,22 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center gap-2 font-semibold mb-2">
+          <ListChecks className="w-5 h-5 text-indigo-600" />数据可信度核对
+          <span className={`ml-auto text-xs font-medium ${trustItems.length > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{trustItems.length > 0 ? `${trustItems.length} 项待核对` : '未发现异常'}</span>
+        </div>
+        {trustItems.length > 0 ? <div className="grid sm:grid-cols-2 gap-2">
+          {trustItems.map((item) => (
+            <div key={item.title} className={`rounded-lg border p-3 ${item.tone === 'rose' ? 'bg-rose-50 border-rose-100' : item.tone === 'amber' ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-200'}`}>
+              <div className={`text-sm font-medium ${item.tone === 'rose' ? 'text-rose-700' : item.tone === 'amber' ? 'text-amber-700' : 'text-slate-600'}`}>{item.title}</div>
+              <p className="text-xs text-slate-500 mt-1 leading-5">{item.detail}</p>
+            </div>
+          ))}
+        </div> : <p className="text-sm text-emerald-600">最新月份没有发现缺失、未解释的大额变化或备份问题。</p>}
+        <p className="text-xs text-slate-400 mt-2">这里只列出可核对事实，不对家庭财务质量打分。</p>
+      </div>
+
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2 font-semibold"><Target className="w-5 h-5 text-indigo-600" />财务自由进度</div>
           <span className="text-2xl font-bold text-indigo-600">{(fire.progress * 100).toFixed(1)}%</span>
@@ -827,7 +911,15 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
         <p className="text-xs text-slate-400 mt-2">预计收入取近3个月实际收入平均，仅作提示，不计入净资产。</p>
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
+      <button onClick={() => setMoreOpen((v) => !v)}
+        className="w-full bg-white rounded-xl px-4 py-3 border border-slate-200 flex items-center justify-between text-sm font-semibold text-slate-700">
+        <span>{moreOpen ? '收起深度分析' : '展开深度分析'}</span>
+        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
+      </button>
+
+      {moreOpen && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center gap-2 font-semibold mb-1">
           {expandCat && (
             <button onClick={() => setExpandCat(null)} className="flex items-center text-indigo-600 text-sm"><ChevronLeft className="w-4 h-4" />返回</button>
@@ -963,14 +1055,32 @@ function Overview({ latest, chartData, fire, cashflow, withdrawalRate, setWithdr
         )}
       </div>
 
-      <button onClick={() => setMoreOpen((v) => !v)}
-        className="w-full bg-white rounded-xl px-4 py-3 border border-slate-200 flex items-center justify-between text-sm font-semibold text-slate-700">
-        <span>更多分析</span>
-        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
-      </button>
+        </div>
+      )}
 
       {moreOpen && (
         <div className="space-y-4">
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="font-semibold mb-1">行动有效性复盘</div>
+            <p className="text-xs text-slate-400 mb-3">完成状态来自手工勾选；指标变化只表示同期结果，不证明由该行动直接造成。</p>
+            {actionReviews.length === 0 ? <p className="text-sm text-slate-400">暂无行动历史，请先在月度结账中记录下月行动。</p> : <>
+              <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                <MiniStat label="行动完成率" value={`${(completedActions.length / actionReviews.length * 100).toFixed(0)}%`} c="text-indigo-600" />
+                <MiniStat label="指标改善" value={measuredActions.length ? `${improvedActions.length}/${measuredActions.length} 项` : '暂无指标'} c="text-emerald-600" />
+                <MiniStat label="逾期未完成" value={`${overdueActions.length} 项`} c={overdueActions.length ? 'text-rose-600' : 'text-emerald-600'} />
+              </div>
+              <div className="space-y-2">
+                {actionReviews.slice(-5).reverse().map((action) => (
+                  <div key={`${action.month}-${action.id}`} className="flex items-start gap-2 text-xs rounded-lg bg-slate-50 border border-slate-100 p-2.5">
+                    <span className={action.done ? 'text-emerald-600' : 'text-amber-600'}>{action.done ? '已完成' : '待完成'}</span>
+                    <span className="flex-1 text-slate-600">{action.month} · {action.text}</span>
+                    {action.result != null && <span className={action.result > 0 ? 'text-emerald-600' : action.result < 0 ? 'text-rose-600' : 'text-slate-400'}>{ACTION_METRICS[action.metric]} {yuanSign(action.result)}</span>}
+                  </div>
+                ))}
+              </div>
+            </>}
+          </div>
+
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="font-semibold mb-1">成员归属摘要 · {latest.month}</div>
             <p className="text-xs text-slate-400 mb-3">按账户管理中的成员归属汇总最新月份数据</p>
@@ -1428,13 +1538,15 @@ function Field({ label, children }) {
 }
 
 // ---------- 月度结账 ----------
-function Closing({ accounts, setAccounts, records, setRecords, series, monthStatus, setMonthStatus, monthMeta, setMonthMeta }) {
+function Closing({ accounts, setAccounts, records, setRecords, series, monthStatus, setMonthStatus, monthMeta, setMonthMeta, goals, setGoalHistory }) {
   const months = Object.keys(records).sort();
   const [sel, setSel] = useState(months[months.length - 1]);
   const [deleteMonth, setDeleteMonth] = useState(null);
   const [closeCheckOpen, setCloseCheckOpen] = useState(false);
   const [actionDraft, setActionDraft] = useState('');
+  const [actionMetric, setActionMetric] = useState('none');
   const [deleteAction, setDeleteAction] = useState(null);
+  const [copyStatus, setCopyStatus] = useState('');
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
@@ -1444,10 +1556,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const previousMonth = previousMonths[previousMonths.length - 1];
   const previousRec = records[previousMonth] || {};
   const selectedSummary = series.find((s) => s.month === sel);
+  const previousSummary = series.find((s) => s.month === previousMonth);
   const isClosed = monthStatus[sel] === 'closed';
   const currentActions = Array.isArray(monthMeta[sel]?.actions) ? monthMeta[sel].actions : [];
   const previousActions = Array.isArray(monthMeta[previousMonth]?.actions) ? monthMeta[previousMonth].actions : [];
-  useEffect(() => { setActionDraft(''); }, [sel]);
+  useEffect(() => { setActionDraft(''); setActionMetric('none'); setCopyStatus(''); }, [sel]);
   const setVal = (id, v) => {
     if (!sel || isClosed) return;
     const value = v === '' ? '' : (Number(v) || 0);
@@ -1488,6 +1601,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       return copy;
     });
     setMonthMeta((prev) => {
+      const copy = { ...prev };
+      delete copy[m];
+      return copy;
+    });
+    setGoalHistory((prev) => {
       const copy = { ...prev };
       delete copy[m];
       return copy;
@@ -1534,10 +1652,24 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   }
 
   const closeMonth = () => {
+    const snapshots = {};
+    goals.forEach((goal) => {
+      snapshots[goal.id] = {
+        name: goal.name,
+        targetAmount: Number(goal.targetAmount) || 0,
+        currentAmount: resolveGoalCurrentAmount(goal, rec),
+        targetDate: goal.targetDate,
+        linkedAccountIds: Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [],
+      };
+    });
+    setGoalHistory((prev) => ({ ...prev, [sel]: snapshots }));
     setMonthStatus((prev) => ({ ...prev, [sel]: 'closed' }));
     setCloseCheckOpen(false);
   };
-  const reopenMonth = () => setMonthStatus((prev) => ({ ...prev, [sel]: 'draft' }));
+  const reopenMonth = () => {
+    setMonthStatus((prev) => ({ ...prev, [sel]: 'draft' }));
+    setMonthMeta((prev) => ({ ...prev, [sel]: { ...(prev[sel] || {}), reopenedAt: new Date().toISOString() } }));
+  };
   const updateActions = (month, updater) => setMonthMeta((prev) => {
     const meta = prev[month] || {};
     const actions = Array.isArray(meta.actions) ? meta.actions : [];
@@ -1546,8 +1678,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const addAction = () => {
     const text = actionDraft.trim();
     if (!sel || !text || currentActions.length >= 2) return;
-    updateActions(sel, (actions) => [...actions, { id: `action_${Date.now()}`, text, done: false }]);
+    updateActions(sel, (actions) => [...actions, { id: `action_${Date.now()}`, text, done: false, metric: actionMetric }]);
     setActionDraft('');
+    setActionMetric('none');
   };
   const toggleAction = (month, id) => updateActions(month, (actions) => actions.map((action) => action.id === id ? { ...action, done: !action.done } : action));
   const confirmDeleteAction = () => {
@@ -1561,6 +1694,39 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
     else delete changeReasons[accountId];
     return { ...prev, [sel]: { ...meta, changeReasons } };
   });
+  const monthlyBrief = selectedSummary ? [
+    `${sel} 家庭财务简报（${isClosed ? '已结账' : '录入中'}）`,
+    '',
+    '一、我们站在哪里',
+    `净资产 ${fmtYuan(selectedSummary.nw)}，总资产 ${fmtYuan(selectedSummary.assets)}，总负债 ${fmtYuan(selectedSummary.liab)}。`,
+    `本月收入 ${fmtYuan(selectedSummary.inc)}，支出 ${fmtYuan(selectedSummary.exp)}，结余 ${yuanSign(selectedSummary.saved)}。`,
+    '',
+    '二、为什么发生变化',
+    selectedSummary.netChange == null
+      ? '这是首个月度记录，暂无净资产环比变化。'
+      : `净资产变化 ${yuanSign(selectedSummary.netChange)} = 结余 ${yuanSign(selectedSummary.saved)} + 非收支变化 ${yuanSign(selectedSummary.nonCashChange)}。`,
+    ...(selectedSummary.drivers.length > 0
+      ? selectedSummary.drivers.slice(0, 3).map((driver) => `主要变化：${driver.name} ${yuanSign(driver.contribution)}${driver.reason ? `（${driver.reason}）` : ''}`)
+      : ['本月没有可识别的资产或负债账户变化。']),
+    '',
+    '三、下月做什么',
+    ...(previousActions.length > 0
+      ? [`上月行动完成 ${previousActions.filter((action) => action.done === true).length}/${previousActions.length} 项。`]
+      : []),
+    ...(currentActions.length > 0
+      ? currentActions.map((action, index) => `${index + 1}. ${action.done ? '已完成' : '待完成'}：${action.text}`)
+      : ['尚未记录下月行动。']),
+  ].join('\n') : '';
+  const copyMonthlyBrief = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable');
+      await navigator.clipboard.writeText(monthlyBrief);
+      setCopyStatus('copied');
+    } catch {
+      setCopyStatus('error');
+    }
+    setTimeout(() => setCopyStatus(''), 2000);
+  };
 
   return (
     <div className="space-y-4">
@@ -1621,6 +1787,19 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             </div>
           )}
 
+          {selectedSummary && (
+            <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="text-sm font-semibold text-slate-700">月度家庭简报</div>
+                <button onClick={copyMonthlyBrief} className={`shrink-0 text-xs px-3 py-1.5 rounded-lg ${copyStatus === 'copied' ? 'bg-emerald-50 text-emerald-600' : copyStatus === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
+                  {copyStatus === 'copied' ? '已复制' : copyStatus === 'error' ? '复制失败' : '复制简报'}
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap font-sans text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-3 border border-slate-100">{monthlyBrief}</pre>
+              {copyStatus === 'error' && <p className="text-xs text-rose-600 mt-2">当前浏览器未允许访问剪贴板，请长按上方文字手动复制。</p>}
+            </div>
+          )}
+
           {isClosed ? (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
               <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -1645,7 +1824,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 {previousActions.map((action) => (
                   <label key={action.id} className="flex items-start gap-2 text-sm text-slate-600 cursor-pointer">
                     <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(previousMonth, action.id)} className="mt-0.5 accent-indigo-600" />
-                    <span className={action.done ? 'line-through text-slate-400' : ''}>{action.text}</span>
+                    <span className="flex-1"><span className={action.done ? 'line-through text-slate-400' : ''}>{action.text}</span>
+                      {action.metric && action.metric !== 'none' && <span className="block text-xs text-slate-400 mt-0.5">{ACTION_METRICS[action.metric]} · 同期变化 {yuanSign(actionMetricChange(action.metric, previousSummary, selectedSummary))}</span>}
+                    </span>
                   </label>
                 ))}
               </div>
@@ -1659,14 +1840,17 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               {currentActions.map((action) => (
                 <div key={action.id} className="flex items-start gap-2 text-sm text-slate-600">
                   <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(sel, action.id)} className="mt-0.5 accent-indigo-600" />
-                  <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}</span>
+                  <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}{action.metric && action.metric !== 'none' ? <span className="block text-xs text-slate-400 mt-0.5">观察：{ACTION_METRICS[action.metric]}</span> : null}</span>
                   <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>}
-            {currentActions.length < 2 && <div className="flex gap-2">
+            {currentActions.length < 2 && <div className="grid sm:grid-cols-[1fr_9rem_auto] gap-2">
               <input value={actionDraft} onChange={(e) => setActionDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addAction(); }} placeholder="例如：共同账户增加 5,000 元现金"
-                className="flex-1 min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+                className="min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+              <select value={actionMetric} onChange={(e) => setActionMetric(e.target.value)} aria-label="行动观察指标" className="border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white text-slate-600">
+                {Object.entries(ACTION_METRICS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
               <button onClick={addAction} className="shrink-0 bg-indigo-600 text-white rounded-lg px-3 py-2 text-sm">添加</button>
             </div>}
           </div>
@@ -1812,8 +1996,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
 }
 
 // ---------- 家庭目标 ----------
-function Goals({ goals, setGoals }) {
-  const emptyDraft = { name: '', targetAmount: '', currentAmount: '', targetDate: '', priority: 'medium' };
+function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records, latest }) {
+  const emptyDraft = { name: '', targetAmount: '', currentAmount: '', targetDate: '', priority: 'medium', linkedAccountIds: [] };
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -1822,6 +2006,8 @@ function Goals({ goals, setGoals }) {
   const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
   const priorityLabel = { high: '优先', medium: '正常', low: '以后' };
   const priorityTone = { high: 'bg-rose-50 text-rose-600', medium: 'bg-indigo-50 text-indigo-600', low: 'bg-slate-100 text-slate-500' };
+  const assetAccounts = accounts.filter((account) => account.type === 'asset');
+  const latestRec = records[latest?.month] || {};
   const sortedGoals = goals.slice().sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
     return (order[a.priority] ?? 1) - (order[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || ''));
@@ -1831,11 +2017,17 @@ function Goals({ goals, setGoals }) {
     const name = draft.name.trim();
     const targetAmount = Number(draft.targetAmount);
     const currentAmount = Number(draft.currentAmount) || 0;
+    const linkedAccountIds = Array.isArray(draft.linkedAccountIds) ? draft.linkedAccountIds : [];
+    const conflictingAccounts = linkedAccountIds.filter((accountId) => goals.some((goal) => goal.id !== editingId && Array.isArray(goal.linkedAccountIds) && goal.linkedAccountIds.includes(accountId)));
     if (!name || !(targetAmount > 0) || currentAmount < 0 || !draft.targetDate) {
       setError('请填写目标名称、目标金额和目标日期，当前已准备金额不能为负数。');
       return;
     }
-    const goal = { name, targetAmount, currentAmount, targetDate: draft.targetDate, priority: draft.priority };
+    if (conflictingAccounts.length > 0) {
+      setError('同一个资产账户不能同时归属多个目标，请先取消其他目标中的关联。');
+      return;
+    }
+    const goal = { name, targetAmount, currentAmount, targetDate: draft.targetDate, priority: draft.priority, linkedAccountIds };
     if (editingId) setGoals((prev) => prev.map((item) => item.id === editingId ? { ...item, ...goal } : item));
     else setGoals((prev) => [...prev, { id: `goal_${Date.now()}`, ...goal }]);
     setDraft(emptyDraft);
@@ -1843,13 +2035,18 @@ function Goals({ goals, setGoals }) {
     setError('');
   };
   const editGoal = (goal) => {
-    setDraft({ name: goal.name, targetAmount: String(goal.targetAmount), currentAmount: String(goal.currentAmount || ''), targetDate: goal.targetDate, priority: goal.priority || 'medium' });
+    setDraft({ name: goal.name, targetAmount: String(goal.targetAmount), currentAmount: String(goal.currentAmount || ''), targetDate: goal.targetDate, priority: goal.priority || 'medium', linkedAccountIds: Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [] });
     setEditingId(goal.id);
     setError('');
   };
   const cancelEdit = () => { setDraft(emptyDraft); setEditingId(null); setError(''); };
   const confirmDelete = () => {
     setGoals((prev) => prev.filter((goal) => goal.id !== deleteId));
+    setGoalHistory((prev) => Object.fromEntries(Object.entries(prev).map(([month, snapshots]) => {
+      const nextSnapshots = { ...(snapshots || {}) };
+      delete nextSnapshots[deleteId];
+      return [month, nextSnapshots];
+    })));
     if (editingId === deleteId) cancelEdit();
     setDeleteId(null);
   };
@@ -1872,9 +2069,10 @@ function Goals({ goals, setGoals }) {
             <input type="number" min="0" inputMode="decimal" value={draft.targetAmount} onChange={(e) => setDraft((d) => ({ ...d, targetAmount: e.target.value }))} placeholder="0"
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
           </label>
-          <label className="text-sm text-slate-600">当前已准备
-            <input type="number" min="0" inputMode="decimal" value={draft.currentAmount} onChange={(e) => setDraft((d) => ({ ...d, currentAmount: e.target.value }))} placeholder="0"
-              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
+          <label className="text-sm text-slate-600">当前已准备{draft.linkedAccountIds.length > 0 ? '（自动汇总）' : ''}
+            <input type="number" min="0" inputMode="decimal" value={draft.linkedAccountIds.length > 0 ? resolveGoalCurrentAmount({ linkedAccountIds: draft.linkedAccountIds }, latestRec) : draft.currentAmount} onChange={(e) => setDraft((d) => ({ ...d, currentAmount: e.target.value }))} placeholder="0"
+              disabled={draft.linkedAccountIds.length > 0}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800 disabled:bg-slate-100 disabled:text-slate-400" />
           </label>
           <label className="text-sm text-slate-600">优先级
             <select value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}
@@ -1882,6 +2080,23 @@ function Goals({ goals, setGoals }) {
               <option value="high">优先</option><option value="medium">正常</option><option value="low">以后</option>
             </select>
           </label>
+          <div className="sm:col-span-2">
+            <div className="text-sm text-slate-600 mb-1">关联资金账户（可选）</div>
+            {assetAccounts.length === 0 ? <p className="text-xs text-slate-400">暂无资产账户，继续使用手动金额。</p> : (
+              <div className="grid sm:grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3">
+                {assetAccounts.map((account) => {
+                  const usedByOther = goals.some((goal) => goal.id !== editingId && Array.isArray(goal.linkedAccountIds) && goal.linkedAccountIds.includes(account.id));
+                  const checked = draft.linkedAccountIds.includes(account.id);
+                  const unavailable = usedByOther && !checked;
+                  return <label key={account.id} className={`flex items-start gap-2 text-sm ${unavailable ? 'text-slate-300' : 'text-slate-600 cursor-pointer'}`}>
+                    <input type="checkbox" checked={checked} disabled={unavailable} onChange={(e) => setDraft((d) => ({ ...d, linkedAccountIds: e.target.checked ? [...d.linkedAccountIds, account.id] : d.linkedAccountIds.filter((id) => id !== account.id) }))} className="mt-0.5 accent-indigo-600" />
+                    <span className="flex-1">{account.member} · {account.name}{account.active === false ? '（已停用）' : ''}<span className="block text-xs text-slate-400">最新余额 {fmtYuan(latestRec[account.id] || 0)}{usedByOther ? ' · 已归属其他目标' : ''}</span></span>
+                  </label>;
+                })}
+              </div>
+            )}
+            <p className="text-xs text-slate-400 mt-1">关联后自动使用这些账户的最新余额；一个账户默认只能归属一个目标，避免重复计算。</p>
+          </div>
         </div>
         {error && <p className="text-xs text-rose-600 mt-2">{error}</p>}
         <div className="flex gap-2 mt-3">
@@ -1895,12 +2110,26 @@ function Goals({ goals, setGoals }) {
       ) : (
         <div className="grid md:grid-cols-2 gap-3">
           {sortedGoals.map((goal) => {
-            const { targetAmount, currentAmount, gap, monthlyNeed, progress } = getGoalProgress(goal, currentMonthIndex);
+            const linkedAccountIds = Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [];
+            const { targetAmount, currentAmount, gap, monthlyNeed, progress } = getGoalProgress(goal, currentMonthIndex, resolveGoalCurrentAmount(goal, latestRec));
+            const history = Object.keys(goalHistory).sort().map((month) => ({ month, ...(goalHistory[month]?.[goal.id] || {}) }))
+              .filter((snapshot) => snapshot.currentAmount != null);
+            const latestSnapshot = history[history.length - 1];
+            const previousSnapshot = history[history.length - 2];
+            let actualIncrease = null, plannedIncrease = null;
+            if (latestSnapshot && previousSnapshot) {
+              actualIncrease = Number(latestSnapshot.currentAmount) - Number(previousSnapshot.currentAmount);
+              const previousMonthIndex = monthIndexFromKey(previousSnapshot.month);
+              const latestMonthIndex = monthIndexFromKey(latestSnapshot.month);
+              const previousPlan = getGoalProgress(previousSnapshot, previousMonthIndex);
+              const intervalMonths = Math.max(1, latestMonthIndex - previousMonthIndex);
+              plannedIncrease = previousPlan.monthlyNeed == null ? null : previousPlan.monthlyNeed * intervalMonths;
+            }
             return <div key={goal.id} className="bg-white rounded-xl p-4 border border-slate-200">
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span></div>
-                  <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}</p>
+                  <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}{linkedAccountIds.length > 0 ? ` · 自动汇总 ${linkedAccountIds.length} 个账户` : ' · 手动金额'}</p>
                 </div>
                 <button onClick={() => editGoal(goal)} className="text-slate-400 hover:text-indigo-600" title={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
                 <button onClick={() => setDeleteId(goal.id)} className="text-slate-400 hover:text-rose-600" title={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
@@ -1910,6 +2139,25 @@ function Goals({ goals, setGoals }) {
               <div className="grid grid-cols-2 gap-2 mt-3 text-center">
                 <MiniStat label="还差" value={fmtWan(gap)} c={gap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
                 <MiniStat label="按期每月需准备" value={gap === 0 ? '已完成' : monthlyNeed == null ? '已到期' : fmtWan(monthlyNeed)} c={gap === 0 ? 'text-emerald-600' : 'text-indigo-600'} />
+              </div>
+              <div className="mt-3 pt-3 border-t border-slate-100">
+                <div className="text-xs font-medium text-slate-500 mb-1">目标进度历史</div>
+                {history.length === 0 ? <p className="text-xs text-slate-400">完成月度结账后开始记录目标快照。</p>
+                  : history.length === 1 ? <p className="text-xs text-slate-500">{latestSnapshot.month} 已记录首个快照：{fmtWan(latestSnapshot.currentAmount)}</p>
+                  : <>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <MiniStat label="本期实际增加" value={wanSign(actualIncrease)} c={actualIncrease >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
+                      <MiniStat label="本期计划增加" value={plannedIncrease == null ? '目标已到期' : fmtWan(plannedIncrease)} c="text-indigo-600" />
+                      <MiniStat label="执行状态" value={plannedIncrease == null ? '需重设日期' : actualIncrease >= plannedIncrease ? '达到计划' : `落后 ${fmtWan(plannedIncrease - actualIncrease)}`} c={plannedIncrease != null && actualIncrease >= plannedIncrease ? 'text-emerald-600' : 'text-rose-600'} />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+                      {history.slice(-4).map((snapshot, index, shown) => {
+                        const prior = index > 0 ? shown[index - 1] : null;
+                        const change = prior ? Number(snapshot.currentAmount) - Number(prior.currentAmount) : null;
+                        return <span key={snapshot.month}>{snapshot.month} {fmtWan(snapshot.currentAmount)}{change == null ? '' : `（${yuanSign(change)}）`}</span>;
+                      })}
+                    </div>
+                  </>}
               </div>
             </div>;
           })}
