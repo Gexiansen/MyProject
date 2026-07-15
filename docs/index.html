@@ -110,7 +110,7 @@
 const { useState, useMemo, useRef, useEffect } = React;
 const {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, ComposedChart, Line, LineChart,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, ComposedChart, Line,
   Area, AreaChart, Legend, ReferenceLine
 } = Recharts;
 
@@ -142,9 +142,9 @@ const BarChart3 = icon([['path',{d:'M3 3v18h18'}],['path',{d:'M18 17V9'}],['path
 const X = icon([['path',{d:'M18 6 6 18'}],['path',{d:'m6 6 12 12'}]]);
 const AlertTriangle = icon([['path',{d:'m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z'}],['path',{d:'M12 9v4'}],['path',{d:'M12 17h.01'}]]);
 const Power = icon([['path',{d:'M12 2v10'}],['path',{d:'M18.36 6.64a9 9 0 1 1-12.73 0'}]]);
-const Percent = icon([['line',{x1:19,x2:5,y1:5,y2:19}],['circle',{cx:6.5,cy:6.5,r:2.5}],['circle',{cx:17.5,cy:17.5,r:2.5}]]);
 const Info = icon([['circle',{cx:12,cy:12,r:10}],['path',{d:'M12 16v-4'}],['path',{d:'M12 8h.01'}]]);
 const Lock = icon([['rect',{x:3,y:11,width:18,height:11,rx:2,ry:2}],['path',{d:'M7 11V7a5 5 0 0 1 10 0v4'}]]);
+const MoreHorizontal = icon([['circle',{cx:5,cy:12,r:1}],['circle',{cx:12,cy:12,r:1}],['circle',{cx:19,cy:12,r:1}]]);
 
 // ---------- 工具 ----------
 const CATS = { cash: '现金', investment: '投资', fixed: '固定资产' };
@@ -305,6 +305,7 @@ function FamilyFinance({ onChangePassword }) {
   const [saveStatus, setSaveStatus] = useState('');
   const [resetOpen, setResetOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const fileRef = useRef(null);
 
   useEffect(() => {
@@ -511,7 +512,7 @@ function FamilyFinance({ onChangePassword }) {
             {saveStatus === 'saved' && <span className="text-xs text-emerald-600 ml-1">已保存 ✓</span>}
             {saveStatus === 'error' && <span className="text-xs text-rose-600 ml-1">本机保存失败</span>}
           </div>
-          <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+          <div className="ml-auto hidden sm:flex flex-wrap items-center justify-end gap-2">
             <button onClick={exportData} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
               <Upload className="w-4 h-4" /> 导出
             </button>
@@ -527,7 +528,7 @@ function FamilyFinance({ onChangePassword }) {
             <input ref={fileRef} type="file" accept=".json,application/json" onChange={importData} className="hidden" />
           </div>
         </div>
-        <div className="max-w-4xl mx-auto px-2 flex gap-1 overflow-x-auto">
+        <div className="max-w-4xl mx-auto px-2 hidden sm:flex gap-1 overflow-x-auto">
           {tabs.map((t) => {
             const Icon = t.icon;
             return (
@@ -537,6 +538,32 @@ function FamilyFinance({ onChangePassword }) {
               </button>
             );
           })}
+        </div>
+        <div className="max-w-4xl mx-auto px-2 grid grid-cols-4 gap-1 sm:hidden relative">
+          {tabs.filter((t) => ['overview', 'closing', 'goals'].includes(t.key)).map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.key} onClick={() => { setTab(t.key); setMobileMenuOpen(false); }}
+                className={`flex flex-col items-center gap-0.5 px-1 py-2 text-xs border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
+                <Icon className="w-4 h-4" /> {t.label}
+              </button>
+            );
+          })}
+          <button onClick={() => setMobileMenuOpen((open) => !open)}
+            className={`flex flex-col items-center gap-0.5 px-1 py-2 text-xs border-b-2 ${['accounts', 'annual'].includes(tab) || mobileMenuOpen ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
+            <MoreHorizontal className="w-4 h-4" />更多
+          </button>
+          {mobileMenuOpen && (
+            <div className="absolute right-2 top-full mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl p-2 z-30">
+              <button onClick={() => { setTab('accounts'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><ListChecks className="w-4 h-4" />账户管理</button>
+              <button onClick={() => { setTab('annual'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><BarChart3 className="w-4 h-4" />年度小结</button>
+              <div className="my-1 border-t border-slate-100" />
+              <button onClick={() => { exportData(); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Upload className="w-4 h-4" />导出数据</button>
+              <button onClick={() => { fileRef.current?.click(); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Download className="w-4 h-4" />导入数据</button>
+              <button onClick={() => { setPasswordOpen(true); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Lock className="w-4 h-4" />修改密码</button>
+              <button onClick={() => { setResetOpen(true); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-rose-600 rounded-lg hover:bg-rose-50"><Power className="w-4 h-4" />重置数据</button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -632,13 +659,6 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
       现金金额: s.cash, 投资金额: s.invest, 固定资产金额: s.fixed,
     };
   });
-  const savingTrend = chartData.map((s) => ({
-    month: s.label, 储蓄率: s.inc ? s.saved / s.inc : null,
-    收入: s.inc, 支出: s.exp, 结余: s.saved,
-  }));
-  const validSavingRates = savingTrend.filter((s) => s.储蓄率 != null);
-  const avgSavingRate = validSavingRates.length ? validSavingRates.reduce((sum, s) => sum + s.储蓄率, 0) / validSavingRates.length : null;
-  const concTrend = chartData.map((s) => ({ month: s.label, 集中度: s.concentration, 最大持仓: s.topInvName || '—' }));
   const periodGrowth = chartData.length > 1 ? chartData[chartData.length - 1].nw - chartData[0].nw : 0;
   const previousMonth = chartData.length > 1 ? chartData[chartData.length - 2] : null;
   const recentMonths = chartData.slice(-12);
@@ -682,7 +702,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
       else if (a.type === 'income') totals.income += value;
       else if (a.type === 'expense') totals.expenses += value;
     });
-    return { member, ...totals, netWorth: totals.assets - totals.liabilities, cashflow: totals.income - totals.expenses };
+    return { member, ...totals, netWorth: totals.assets - totals.liabilities };
   });
   const goalNow = new Date();
   const goalCurrentMonthIndex = goalNow.getFullYear() * 12 + goalNow.getMonth();
@@ -693,16 +713,18 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     .sort((a, b) => (goalPriorityOrder[a.priority] ?? 1) - (goalPriorityOrder[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || '')));
   const activeGoalPlans = goalPlans.filter((goal) => goal.gap > 0);
   const completedGoalCount = goalPlans.length - activeGoalPlans.length;
-  const overdueGoalCount = activeGoalPlans.filter((goal) => goal.monthlyNeed == null).length;
-  const totalMonthlyNeed = activeGoalPlans.reduce((sum, goal) => sum + (goal.monthlyNeed || 0), 0);
+  const fundedGoalPlans = activeGoalPlans.filter((goal) => goal.priority !== 'low');
+  const overdueGoalCount = fundedGoalPlans.filter((goal) => goal.monthlyNeed == null).length;
+  const totalMonthlyNeed = fundedGoalPlans.reduce((sum, goal) => sum + (goal.monthlyNeed || 0), 0);
   const recentAvgSaved = recentMonths.length ? recentMonths.reduce((sum, item) => sum + item.saved, 0) / recentMonths.length : 0;
   const goalMonthlyBalance = recentAvgSaved - totalMonthlyNeed;
-  const previousSeriesMonth = chartData.length > 1 ? chartData[chartData.length - 2].month : null;
-  const previousLatestRec = previousSeriesMonth ? (records[previousSeriesMonth] || {}) : {};
   const missingLatestAccounts = accounts.filter((account) => isActive(account) && (!Object.prototype.hasOwnProperty.call(rec, account.id) || rec[account.id] === '' || rec[account.id] == null));
-  const unchangedBalanceAccounts = previousSeriesMonth ? accounts.filter((account) => isActive(account) && (account.type === 'asset' || account.type === 'liability')
-    && Object.prototype.hasOwnProperty.call(rec, account.id) && Object.prototype.hasOwnProperty.call(previousLatestRec, account.id)
-    && Number(rec[account.id]) === Number(previousLatestRec[account.id])) : [];
+  const balanceCheckMonths = chartData.slice(-3).map((item) => item.month);
+  const unchangedBalanceAccounts = balanceCheckMonths.length === 3 ? accounts.filter((account) => isActive(account)
+    && (account.type === 'liability' || (account.type === 'asset' && account.category !== 'fixed'))
+    && balanceCheckMonths.every((month) => Object.prototype.hasOwnProperty.call(records[month] || {}, account.id)
+      && records[month][account.id] !== '' && records[month][account.id] != null)
+    && balanceCheckMonths.every((month) => Number(records[month][account.id]) === Number(records[balanceCheckMonths[0]][account.id]))) : [];
   const unannotatedLargeDrivers = latest.drivers.filter((driver) => Math.abs(driver.contribution) >= 10000 && !driver.reason);
   const linkedAccountUsage = {};
   goals.forEach((goal) => (Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : []).forEach((accountId) => { linkedAccountUsage[accountId] = (linkedAccountUsage[accountId] || 0) + 1; }));
@@ -715,7 +737,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   if (missingLatestAccounts.length > 0) trustItems.push({ title: '启用账户未填写', detail: `${missingLatestAccounts.length} 个账户在 ${latest.month} 没有完整数值。`, tone: 'rose' });
   if (unannotatedLargeDrivers.length > 0) trustItems.push({ title: '大额变化未标注', detail: `${unannotatedLargeDrivers.length} 个账户变化超过 1 万元但尚未填写原因。`, tone: 'amber' });
   if (Math.abs(latest.nonCashChange) > Math.abs(latest.saved) && Math.abs(latest.nonCashChange) >= 10000) trustItems.push({ title: '非收支变化较大', detail: `非收支变化 ${yuanSign(latest.nonCashChange)}，绝对值超过本月结余。`, tone: 'amber' });
-  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '余额连续不变', detail: `${unchangedBalanceAccounts.length} 个资产或负债账户与上月完全相同，请确认不是忘记更新。`, tone: 'slate' });
+  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '余额连续三个月不变', detail: `${unchangedBalanceAccounts.length} 个现金、投资或负债账户连续三个月相同，请确认不是忘记更新。`, tone: 'slate' });
   if (monthMeta[latest.month]?.reopenedAt) trustItems.push({ title: '已结账月份重新编辑过', detail: `${latest.month} 曾在结账后重新打开，请确认修正结果。`, tone: 'amber' });
   if (duplicateGoalAccounts.length > 0) trustItems.push({ title: '目标资金重复计算', detail: `${duplicateGoalAccounts.length} 个资产账户同时关联多个目标。`, tone: 'rose' });
   if (missingGoalAccounts.length > 0) trustItems.push({ title: '目标关联账户已不存在', detail: `${missingGoalAccounts.length} 个目标资金账户无法在账户管理中找到。`, tone: 'rose' });
@@ -732,13 +754,10 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     }));
   });
   const completedActions = actionReviews.filter((action) => action.done === true);
-  const measuredActions = actionReviews.filter((action) => action.result != null);
-  const improvedActions = measuredActions.filter((action) => action.result > 0);
   const overdueActions = actionReviews.filter((action) => action.month < latest.month && action.done !== true);
 
   const rateHint = withdrawalRate <= 4 ? '较稳健' : withdrawalRate <= 5 ? '中性偏乐观' : '偏激进，依赖市场表现与灵活开支';
   const yearsText = fire.years == null ? '按当前储蓄速度暂难达成' : fire.years === 0 ? '已达成 🎉' : `约 ${fire.years.toFixed(1)} 年可达成`;
-  const targetMonthText = fire.years === 0 ? '已经达成' : fire.targetMonth || '暂无法估算';
   const projectFireScenario = (annualReturn, annualExpenseGrowth) => {
     const rate = withdrawalRate / 100;
     if (!(rate > 0)) return null;
@@ -747,14 +766,12 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     const monthlySaving = fire.annualSaved / 12;
     const monthlyReturn = Math.pow(1 + annualReturn, 1 / 12) - 1;
     const monthlyExpenseGrowth = Math.pow(1 + annualExpenseGrowth, 1 / 12) - 1;
-    if (balance >= annualExpense / rate) return { months: 0, month: latest.month };
+    if (balance >= annualExpense / rate) return { months: 0 };
     for (let months = 1; months <= 80 * 12; months += 1) {
       balance = Math.max(0, balance * (1 + monthlyReturn) + monthlySaving);
       annualExpense *= 1 + monthlyExpenseGrowth;
       if (balance >= annualExpense / rate) {
-        const [year, month] = latest.month.split('-').map(Number);
-        const monthIndex = year * 12 + month - 1 + months;
-        return { months, month: `${Math.floor(monthIndex / 12)}-${String(monthIndex % 12 + 1).padStart(2, '0')}` };
+        return { months };
       }
     }
     return null;
@@ -767,14 +784,12 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard icon={Wallet} label="净资产" value={fmtWan(latest.nw)} tone="indigo"
           sub={latest.netChange != null ? `本月 ${wanSign(latest.netChange)}` : ''} />
-        <StatCard icon={TrendingUp} label="总资产" value={fmtWan(latest.assets)} tone="emerald" sub={`投资 ${fmtWan(latest.invest)}`} />
         <StatCard icon={PiggyBank} label="本月攒的" value={fmtWan(latest.saved)} tone="amber" sub={`收入 ${fmtWan(latest.inc)} · 支出 ${fmtWan(latest.exp)}`} />
+        <StatCard icon={TrendingUp} label="总资产" value={fmtWan(latest.assets)} tone="emerald" sub={`投资 ${fmtWan(latest.invest)}`} />
         <StatCard icon={Target} label="总负债" value={fmtWan(latest.liab)} tone="rose" />
-        <StatCard icon={Percent} label={`集中度 · ${latest.topInvName || '—'}`} value={(latest.concentration * 100).toFixed(0) + '%'} tone="violet" sub="最大持仓占投资比" />
-        <StatCard icon={Target} label="自由目标数字" value={fmtWan(fire.target)} tone="sky" sub={`年支出 ${fmtWan(fire.annualExp)}`} />
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -791,7 +806,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           <>
             <div className="grid grid-cols-3 gap-2 text-center mb-3">
               <MiniStat label={`近 ${recentMonths.length} 月平均结余`} value={fmtWan(recentAvgSaved)} c={recentAvgSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
-              <MiniStat label="目标每月需准备" value={fmtWan(totalMonthlyNeed)} c="text-indigo-600" />
+              <MiniStat label="优先目标每月需准备" value={fmtWan(totalMonthlyNeed)} c="text-indigo-600" />
               <MiniStat label={overdueGoalCount > 0 ? '当前状态' : goalMonthlyBalance >= 0 ? '每月可剩余' : '每月资金缺口'}
                 value={overdueGoalCount > 0 ? `${overdueGoalCount} 个已到期` : fmtWan(Math.abs(goalMonthlyBalance))}
                 c={overdueGoalCount > 0 || goalMonthlyBalance < 0 ? 'text-rose-600' : 'text-emerald-600'} />
@@ -807,14 +822,14 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
               {activeGoalPlans.length > 3 && <p className="text-xs text-slate-400">另有 {activeGoalPlans.length - 3} 个进行中的目标，请到「家庭目标」查看。</p>}
             </div> : <p className="text-sm text-emerald-600">所有家庭目标均已完成。</p>}
             <div className="flex items-start justify-between gap-3 mt-2">
-              <p className="text-xs text-slate-400">按当前已准备金额和目标日期倒推；平均结余取最近 12 个月，不计目标资金未来收益。</p>
+              <p className="text-xs text-slate-400">仅汇总“优先”和“正常”目标，按同时推进计算；平均结余取最近 12 个月，不计目标资金未来收益。</p>
               <button onClick={() => setTab('goals')} className="shrink-0 text-xs text-indigo-600">管理目标</button>
             </div>
           </>
         )}
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
+      <div className={`${trustItems.length > 0 ? 'p-4' : 'px-4 py-3'} bg-white rounded-xl border border-slate-200`}>
         <div className="flex items-center gap-2 font-semibold mb-3">
           {attentionItems.length > 0
             ? <AlertTriangle className="w-5 h-5 text-amber-600" />
@@ -851,8 +866,8 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
               <p className="text-xs text-slate-500 mt-1 leading-5">{item.detail}</p>
             </div>
           ))}
-        </div> : <p className="text-sm text-emerald-600">最新月份没有发现缺失、未解释的大额变化或备份问题。</p>}
-        <p className="text-xs text-slate-400 mt-2">这里只列出可核对事实，不对家庭财务质量打分。</p>
+        </div> : null}
+        {trustItems.length > 0 && <p className="text-xs text-slate-400 mt-2">这里只列出可核对事实，不对家庭财务质量打分。</p>}
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -867,12 +882,12 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           <MiniStat label="还差投资本金" value={fmtWan(fire.remaining)} c={fire.remaining > 0 ? 'text-indigo-600' : 'text-emerald-600'} />
           <MiniStat label="年被动收入缺口" value={fmtWan(fire.passiveGap)} c={fire.passiveGap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
           <MiniStat label="每年可覆盖支出" value={`${fire.coverageMonths.toFixed(1)}个月`} c="text-sky-600" />
-          <MiniStat label="预计达成月份" value={targetMonthText} c={fire.targetMonth ? 'text-indigo-600' : 'text-slate-500'} />
+          <MiniStat label="预计还需时间" value={fire.years === 0 ? '已达成' : fire.years == null ? '暂无法估算' : `约 ${fire.years.toFixed(1)} 年`} c={fire.years == null ? 'text-slate-500' : 'text-indigo-600'} />
         </div>
         <div className="mt-3 text-xs text-slate-500 space-y-1">
           <p>投资本金 {fmtWan(latest.invest)} × 提取率 {withdrawalRate}% = 年被动收入 {fmtWan(fire.passive)}</p>
           <p>目标数字 {fmtWan(fire.target)}（年支出 ÷ 提取率，分母不含自住房）· <span className="text-indigo-600 font-medium">{yearsText}</span></p>
-          <p>预计月份从最新结账月 {latest.month} 起，按近 {Math.min(12, chartData.length)} 个月平均结余线性推算，不计未来投资收益和支出变化。</p>
+          <p>预计时间按近 {Math.min(12, chartData.length)} 个月平均结余线性推算，不计未来投资收益和支出变化。</p>
         </div>
         <div className="flex items-center gap-2 mt-3">
           <span className="text-xs text-slate-500">提取率</span>
@@ -881,34 +896,19 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           <span className="text-xs font-medium w-10 text-right">{withdrawalRate}%</span>
         </div>
         <p className="text-xs text-slate-400 mt-1">当前提取率{rateHint}。提取率越高，进度越好看，但长期可持续性越低。</p>
-        <div className="mt-4 pt-3 border-t border-slate-100">
+        {moreOpen && <div className="mt-4 pt-3 border-t border-slate-100">
           <div className="text-sm font-medium text-slate-700 mb-2">情景推演 · 复利与支出增长</div>
           <div className="grid sm:grid-cols-3 gap-2">
             {fireScenarios.map((scenario) => (
               <div key={scenario.name} className={`rounded-lg border p-3 ${scenario.tone}`}>
                 <div className="flex items-center justify-between"><span className="text-sm font-medium text-slate-700">{scenario.name}</span><span className="text-xs text-slate-500">收益 {(scenario.annualReturn * 100).toFixed(0)}%</span></div>
-                <div className="text-lg font-bold text-indigo-600 mt-1">{scenario.result ? scenario.result.month : '暂无法达成'}</div>
-                <p className="text-xs text-slate-500 mt-1">{scenario.result ? scenario.result.months === 0 ? '当前已覆盖目标' : `约 ${(scenario.result.months / 12).toFixed(1)} 年` : '80 年内未达到'} · 支出年增 {(scenario.expenseGrowth * 100).toFixed(0)}%</p>
+                <div className="text-lg font-bold text-indigo-600 mt-1">{scenario.result ? scenario.result.months === 0 ? '已覆盖目标' : `约 ${(scenario.result.months / 12).toFixed(1)} 年` : '暂无法达成'}</div>
+                <p className="text-xs text-slate-500 mt-1">{scenario.result ? '按当前月结余持续投入' : '80 年内未达到'} · 支出年增 {(scenario.expenseGrowth * 100).toFixed(0)}%</p>
               </div>
             ))}
           </div>
           <p className="text-xs text-slate-400 mt-2">以上仅用于观察假设变化的影响：按当前月结余持续投入、收益按月复利、生活支出持续增长；未计税费、投资波动和家庭计划变化，不是收益承诺。</p>
-        </div>
-      </div>
-
-      <div className={`rounded-xl p-4 border ${cashflow.disposable < 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
-        <div className="flex items-center gap-2 font-semibold mb-3">
-          <CalendarClock className="w-5 h-5 text-indigo-600" />下月现金流预测
-          {cashflow.disposable < 0 && (
-            <span className="flex items-center gap-1 text-xs text-rose-600 ml-auto"><AlertTriangle className="w-4 h-4" />工资不够覆盖固定支出</span>
-          )}
-        </div>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div><div className="text-xs text-slate-500">预计收入</div><div className="font-bold text-emerald-600">{fmtWan(cashflow.predIncome)}</div></div>
-          <div><div className="text-xs text-slate-500">固定支出</div><div className="font-bold text-slate-700">{fmtWan(cashflow.fixedExp)}</div></div>
-          <div><div className="text-xs text-slate-500">可支配</div><div className={`font-bold ${cashflow.disposable < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{fmtWan(cashflow.disposable)}</div></div>
-        </div>
-        <p className="text-xs text-slate-400 mt-2">预计收入取近3个月实际收入平均，仅作提示，不计入净资产。</p>
+        </div>}
       </div>
 
       <button onClick={() => setMoreOpen((v) => !v)}
@@ -919,6 +919,20 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
       {moreOpen && (
         <div className="space-y-4">
+          <div className={`rounded-xl p-4 border ${cashflow.disposable < 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
+            <div className="flex items-center gap-2 font-semibold mb-3">
+              <CalendarClock className="w-5 h-5 text-indigo-600" />固定支出覆盖预估
+              {cashflow.disposable < 0 && (
+                <span className="flex items-center gap-1 text-xs text-rose-600 ml-auto"><AlertTriangle className="w-4 h-4" />预计收入不足以覆盖固定支出</span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div><div className="text-xs text-slate-500">近3月平均收入</div><div className="font-bold text-emerald-600">{fmtWan(cashflow.predIncome)}</div></div>
+              <div><div className="text-xs text-slate-500">固定支出</div><div className="font-bold text-slate-700">{fmtWan(cashflow.fixedExp)}</div></div>
+              <div><div className="text-xs text-slate-500">固定支出后余额</div><div className={`font-bold ${cashflow.disposable < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{fmtWan(cashflow.disposable)}</div></div>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">这里只衡量固定支出覆盖能力，不含日常开销等浮动支出，也不计入净资产。</p>
+          </div>
           <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center gap-2 font-semibold mb-1">
           {expandCat && (
@@ -1003,19 +1017,22 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             <ComposedChart data={cashTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 11 }} width={38} />
+              <YAxis yAxisId="amount" tick={{ fontSize: 11 }} width={38} />
+              <YAxis yAxisId="rate" orientation="right" tick={{ fontSize: 11 }} width={44} tickFormatter={(v) => (v * 100).toFixed(0) + '%'} />
               <Tooltip content={<CashflowTooltip />} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <ReferenceLine y={0} stroke="#cbd5e1" />
-              <Bar dataKey="结余" name="结余" radius={[3, 3, 0, 0]}>
+              <ReferenceLine yAxisId="amount" y={0} stroke="#cbd5e1" />
+              <ReferenceLine yAxisId="rate" y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
+              <Bar yAxisId="amount" dataKey="结余" name="结余" radius={[3, 3, 0, 0]}>
                 {cashTrend.map((d, i) => <Cell key={i} fill={d.结余 >= 0 ? '#6366f1' : '#e11d48'} />)}
               </Bar>
-              <Line type="monotone" dataKey="收入" stroke="#10b981" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="支出" stroke="#f59e0b" strokeWidth={2} dot={false} />
+              <Line yAxisId="amount" type="monotone" dataKey="收入" stroke="#10b981" strokeWidth={2} dot={false} />
+              <Line yAxisId="amount" type="monotone" dataKey="支出" stroke="#f59e0b" strokeWidth={2} dot={false} />
+              <Line yAxisId="rate" type="monotone" dataKey="储蓄率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls={false} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-        <p className="text-xs text-slate-400 mt-1">结余柱向上表示有结余，红色向下表示支出超过收入；区间储蓄率按总结余 ÷ 总收入计算。</p>
+        <p className="text-xs text-slate-400 mt-1">结余柱使用左轴，紫色虚线储蓄率使用右轴；收入为 0 的月份不计算储蓄率。区间储蓄率按总结余 ÷ 总收入计算。</p>
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -1061,12 +1078,12 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
       {moreOpen && (
         <div className="space-y-4">
           <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <div className="font-semibold mb-1">行动有效性复盘</div>
-            <p className="text-xs text-slate-400 mb-3">完成状态来自手工勾选；指标变化只表示同期结果，不证明由该行动直接造成。</p>
+            <div className="font-semibold mb-1">行动复盘</div>
+            <p className="text-xs text-slate-400 mb-3">完成状态来自手工勾选；关联指标仅展示同期结果，不判断行动是否导致了变化。</p>
             {actionReviews.length === 0 ? <p className="text-sm text-slate-400">暂无行动历史，请先在月度结账中记录下月行动。</p> : <>
               <div className="grid grid-cols-3 gap-2 text-center mb-3">
+                <MiniStat label="已记录行动" value={`${actionReviews.length} 项`} c="text-slate-700" />
                 <MiniStat label="行动完成率" value={`${(completedActions.length / actionReviews.length * 100).toFixed(0)}%`} c="text-indigo-600" />
-                <MiniStat label="指标改善" value={measuredActions.length ? `${improvedActions.length}/${measuredActions.length} 项` : '暂无指标'} c="text-emerald-600" />
                 <MiniStat label="逾期未完成" value={`${overdueActions.length} 项`} c={overdueActions.length ? 'text-rose-600' : 'text-emerald-600'} />
               </div>
               <div className="space-y-2">
@@ -1074,7 +1091,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
                   <div key={`${action.month}-${action.id}`} className="flex items-start gap-2 text-xs rounded-lg bg-slate-50 border border-slate-100 p-2.5">
                     <span className={action.done ? 'text-emerald-600' : 'text-amber-600'}>{action.done ? '已完成' : '待完成'}</span>
                     <span className="flex-1 text-slate-600">{action.month} · {action.text}</span>
-                    {action.result != null && <span className={action.result > 0 ? 'text-emerald-600' : action.result < 0 ? 'text-rose-600' : 'text-slate-400'}>{ACTION_METRICS[action.metric]} {yuanSign(action.result)}</span>}
+                    {action.result != null && <span className="text-slate-500">同期结果 · {ACTION_METRICS[action.metric]} {yuanSign(action.result)}</span>}
                   </div>
                 ))}
               </div>
@@ -1094,14 +1111,10 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
                     <div><div className="text-slate-400">本月收入</div><div className="font-medium text-emerald-600">{fmtWan(summary.income)}</div></div>
                     <div><div className="text-slate-400">本月支出</div><div className="font-medium text-amber-600">{fmtWan(summary.expenses)}</div></div>
                   </div>
-                  <div className="mt-2 pt-2 border-t border-slate-200 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">归属收支差</span>
-                    <span className={`font-medium ${summary.cashflow >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>{wanSign(summary.cashflow)}</span>
-                  </div>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-slate-400 mt-2">共同支出不会拆分到夫妻名下，因此“归属收支差”只反映账户分类，不代表个人贡献或实际分摊。</p>
+            <p className="text-xs text-slate-400 mt-2">仅用于核对账户归属；共同支出不会拆分到夫妻名下，不代表个人贡献或实际分摊。</p>
           </div>
 
           <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -1127,43 +1140,6 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             )}
           </div>
 
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <div className="flex items-start justify-between gap-3 mb-2">
-              <div className="font-semibold">储蓄率趋势</div>
-              <div className="text-sm font-semibold text-indigo-600">平均 {avgSavingRate == null ? '—' : (avgSavingRate * 100).toFixed(1) + '%'}</div>
-            </div>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={savingTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 11 }} width={44} tickFormatter={(v) => (v * 100).toFixed(0) + '%'} />
-                  <Tooltip content={<SavingsRateTooltip />} />
-                  <ReferenceLine y={0} stroke="#cbd5e1" />
-                  {avgSavingRate != null && <ReferenceLine y={avgSavingRate} stroke="#94a3b8" strokeDasharray="4 4" />}
-                  <Line type="monotone" dataKey="储蓄率" stroke="#6366f1" strokeWidth={2} connectNulls={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">收入为0的月份不计入平均储蓄率。</p>
-          </div>
-
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <div className="font-semibold mb-2">每月最大单一持仓占投资资产比例</div>
-            <div className="h-56">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={concTrend}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                  <YAxis tick={{ fontSize: 11 }} width={42} domain={[0, 1]} tickFormatter={(v) => (v * 100).toFixed(0) + '%'} />
-                  <Tooltip content={<ConcentrationTooltip />} />
-                  <ReferenceLine y={0.5} stroke="#f59e0b" strokeDasharray="4 4" />
-                  <Line type="monotone" dataKey="集中度" stroke="#f59e0b" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">虚线为50%提示线，仅用于观察集中程度，不代表统一投资标准。</p>
-          </div>
         </div>
       )}
     </div>
@@ -1230,26 +1206,6 @@ function AssetStructureTooltip({ active, payload, label }) {
   ]} />;
 }
 
-function ConcentrationTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return <ChartTooltipBox title={label} rows={[
-    { label: '最大持仓', value: d.最大持仓 },
-    { label: '集中度', value: (d.集中度 * 100).toFixed(1) + '%', className: 'font-medium text-amber-600' },
-  ]} />;
-}
-
-function SavingsRateTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
-  const d = payload[0].payload;
-  return <ChartTooltipBox title={label} rows={[
-    { label: '收入', value: fmtYuan(d.收入), className: 'text-emerald-600' },
-    { label: '支出', value: fmtYuan(d.支出), className: 'text-amber-600' },
-    { label: '结余', value: fmtYuan(d.结余), className: d.结余 >= 0 ? 'text-indigo-600' : 'text-rose-600' },
-    { label: '储蓄率', value: d.储蓄率 == null ? '收入为0，无法计算' : (d.储蓄率 * 100).toFixed(1) + '%', className: 'font-medium text-indigo-600' },
-  ]} />;
-}
-
 function StatCard({ icon: Icon, label, value, sub, tone }) {
   const tones = {
     indigo: 'text-indigo-600 bg-indigo-50', emerald: 'text-emerald-600 bg-emerald-50',
@@ -1272,10 +1228,6 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
   const [confirm, setConfirm] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
 
-  const familyIncome = accounts.filter((a) => a.type === 'income');
-  const familyExpense = accounts.filter((a) => a.type === 'expense');
-  const monthInc = latest ? latest.inc : 0;
-  const monthExp = latest ? latest.exp : 0;
   const inactive = accounts.filter((a) => !isActive(a));
 
   const remove = (id) => {
@@ -1317,19 +1269,6 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-3">家庭总体状态</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-center">
-          <MiniStat label="总资产" value={fmtWan(latest?.assets || 0)} c="text-emerald-600" />
-          <MiniStat label="总负债" value={fmtWan(latest?.liab || 0)} c="text-rose-600" />
-          <MiniStat label="净资产" value={fmtWan(latest?.nw || 0)} c="text-indigo-600" />
-          <MiniStat label="家庭月收入" value={fmtWan(monthInc)} c="text-emerald-600" />
-          <MiniStat label="家庭月支出" value={fmtWan(monthExp)} c="text-amber-600" />
-          <MiniStat label="月结余" value={fmtWan(monthInc - monthExp)} c="text-slate-700" />
-        </div>
-        <p className="text-xs text-slate-400 mt-2">共 {familyIncome.length} 个收入来源、{familyExpense.length} 个支出项，支持按家庭成员配置。</p>
-      </div>
-
       {sections.map((sec) => {
         const rows = accounts.filter((a) => a.type === sec.type && isActive(a));
         return (
@@ -1547,6 +1486,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const [actionMetric, setActionMetric] = useState('none');
   const [deleteAction, setDeleteAction] = useState(null);
   const [copyStatus, setCopyStatus] = useState('');
+  const [activeMember, setActiveMember] = useState('老公');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
@@ -1756,109 +1697,25 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             <MiniStat label="本月攒的" value={fmtWan(inc - exp)} c="text-indigo-600" />
           </div>
 
-          {selectedSummary?.netChange != null && (
-            <div className="bg-white rounded-xl p-4 border border-slate-200">
-              <div className="text-sm font-medium text-slate-700 mb-1">本月净资产变化</div>
-              <p className="text-sm text-slate-600">
-                <span className="font-medium text-indigo-600">{yuanSign(selectedSummary.netChange)}</span>
-                {' = '}结余 <span className="text-emerald-600">{yuanSign(selectedSummary.saved)}</span>
-                {' + '}非收支变化 <span className={selectedSummary.nonCashChange >= 0 ? 'text-amber-600' : 'text-rose-600'}>{yuanSign(selectedSummary.nonCashChange)}</span>
-              </p>
-              {selectedSummary.drivers.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  <div className="text-xs text-slate-400">主要变化账户 · 原因可选</div>
-                  {selectedSummary.drivers.slice(0, 3).map((driver) => (
-                    <div key={driver.accountId} className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
-                      <span className="flex-1 text-slate-600">{driver.name} <span className={driver.contribution >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{yuanSign(driver.contribution)}</span></span>
-                      <select value={driver.reason} onChange={(e) => setChangeReason(driver.accountId, e.target.value)} aria-label={`${driver.name} 变化原因`}
-                        className="sm:w-40 border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600">
-                        <option value="">未标注</option>
-                        <option value="市场涨跌">市场涨跌</option>
-                        <option value="主动转入/转出">主动转入／转出</option>
-                        <option value="估值调整">估值调整</option>
-                        <option value="偿还/新增负债">偿还／新增负债</option>
-                        <option value="数据修正">数据修正</option>
-                        <option value="其他">其他</option>
-                      </select>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {selectedSummary && (
-            <div className="bg-white rounded-xl p-4 border border-slate-200">
-              <div className="flex items-center justify-between gap-3 mb-2">
-                <div className="text-sm font-semibold text-slate-700">月度家庭简报</div>
-                <button onClick={copyMonthlyBrief} className={`shrink-0 text-xs px-3 py-1.5 rounded-lg ${copyStatus === 'copied' ? 'bg-emerald-50 text-emerald-600' : copyStatus === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
-                  {copyStatus === 'copied' ? '已复制' : copyStatus === 'error' ? '复制失败' : '复制简报'}
-                </button>
-              </div>
-              <pre className="whitespace-pre-wrap font-sans text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-3 border border-slate-100">{monthlyBrief}</pre>
-              {copyStatus === 'error' && <p className="text-xs text-rose-600 mt-2">当前浏览器未允许访问剪贴板，请长按上方文字手动复制。</p>}
-            </div>
-          )}
-
-          {isClosed ? (
+          {isClosed && (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
               <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
               <p className="text-sm text-emerald-800 flex-1">该月份已结账，数据已锁定，避免后续误改。</p>
               <button onClick={reopenMonth} className="text-sm px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg whitespace-nowrap">重新编辑</button>
             </div>
-          ) : (
-            <button onClick={() => setCloseCheckOpen(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-medium">
-              <Lock className="w-4 h-4" />完成本月结账
-            </button>
           )}
 
-          <p className="text-xs text-slate-400 bg-white rounded-lg px-3 py-2 border border-slate-200">
-            {isClosed ? '该月份已锁定。需要修正数据时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
-          </p>
-
-          {previousActions.length > 0 && (
-            <div className="bg-white rounded-xl p-4 border border-slate-200">
-              <div className="text-sm font-semibold text-slate-700 mb-1">上月行动复盘 · {previousMonth}</div>
-              <p className="text-xs text-slate-400 mb-2">在本月结账时确认上月行动是否完成</p>
-              <div className="space-y-2">
-                {previousActions.map((action) => (
-                  <label key={action.id} className="flex items-start gap-2 text-sm text-slate-600 cursor-pointer">
-                    <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(previousMonth, action.id)} className="mt-0.5 accent-indigo-600" />
-                    <span className="flex-1"><span className={action.done ? 'line-through text-slate-400' : ''}>{action.text}</span>
-                      {action.metric && action.metric !== 'none' && <span className="block text-xs text-slate-400 mt-0.5">{ACTION_METRICS[action.metric]} · 同期变化 {yuanSign(actionMetricChange(action.metric, previousSummary, selectedSummary))}</span>}
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
-            <div className="text-sm font-semibold text-slate-700 mb-1">下月行动 · 最多 2 项</div>
-            <p className="text-xs text-slate-400 mb-2">行动会在下个月结账时自动出现，形成复盘闭环。</p>
-            {currentActions.length > 0 && <div className="space-y-2 mb-3">
-              {currentActions.map((action) => (
-                <div key={action.id} className="flex items-start gap-2 text-sm text-slate-600">
-                  <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(sel, action.id)} className="mt-0.5 accent-indigo-600" />
-                  <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}{action.metric && action.metric !== 'none' ? <span className="block text-xs text-slate-400 mt-0.5">观察：{ACTION_METRICS[action.metric]}</span> : null}</span>
-                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动"><Trash2 className="w-4 h-4" /></button>
-                </div>
-              ))}
-            </div>}
-            {currentActions.length < 2 && <div className="grid sm:grid-cols-[1fr_9rem_auto] gap-2">
-              <input value={actionDraft} onChange={(e) => setActionDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addAction(); }} placeholder="例如：共同账户增加 5,000 元现金"
-                className="min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
-              <select value={actionMetric} onChange={(e) => setActionMetric(e.target.value)} aria-label="行动观察指标" className="border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white text-slate-600">
-                {Object.entries(ACTION_METRICS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select>
-              <button onClick={addAction} className="shrink-0 bg-indigo-600 text-white rounded-lg px-3 py-2 text-sm">添加</button>
-            </div>}
+          <div className="grid grid-cols-3 gap-1 bg-white rounded-xl p-1 border border-slate-200 sm:hidden">
+            {closingMembers.map((member) => (
+              <button key={member} onClick={() => setActiveMember(member)}
+                className={`rounded-lg px-3 py-2 text-sm ${activeMember === member ? 'bg-indigo-600 text-white font-medium' : 'text-slate-500'}`}>{member}</button>
+            ))}
           </div>
 
           {closingMembers.map((member) => {
             const memberAccounts = accounts.filter((a) => a.member === member && isActive(a));
             return (
-              <div key={member} id={`closing-${member}`} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div key={member} id={`closing-${member}`} className={`${activeMember === member ? 'block' : 'hidden'} sm:block bg-white rounded-xl border border-slate-200 overflow-hidden`}>
                 <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700">{member}</div>
                 {groups.map((g) => {
                   const rows = memberAccounts.filter((a) => a.type === g.type);
@@ -1902,12 +1759,108 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               </div>
             );
           })}
+
+          <p className="text-xs text-slate-400 bg-white rounded-lg px-3 py-2 border border-slate-200">
+            {isClosed ? '该月份已锁定。需要修正数据时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
+          </p>
+
+          {selectedSummary?.netChange != null && (
+            <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div className="text-sm font-medium text-slate-700 mb-1">本月净资产变化</div>
+              <p className="text-sm text-slate-600">
+                <span className="font-medium text-indigo-600">{yuanSign(selectedSummary.netChange)}</span>
+                {' = '}结余 <span className="text-emerald-600">{yuanSign(selectedSummary.saved)}</span>
+                {' + '}非收支变化 <span className={selectedSummary.nonCashChange >= 0 ? 'text-amber-600' : 'text-rose-600'}>{yuanSign(selectedSummary.nonCashChange)}</span>
+              </p>
+              {selectedSummary.drivers.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  <div className="text-xs text-slate-400">主要变化账户 · 原因可选</div>
+                  {selectedSummary.drivers.slice(0, 3).map((driver) => (
+                    <div key={driver.accountId} className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+                      <span className="flex-1 text-slate-600">{driver.name} <span className={driver.contribution >= 0 ? 'text-emerald-600' : 'text-rose-600'}>{yuanSign(driver.contribution)}</span></span>
+                      <select value={driver.reason} onChange={(e) => setChangeReason(driver.accountId, e.target.value)} aria-label={`${driver.name} 变化原因`}
+                        className="sm:w-40 border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600">
+                        <option value="">未标注</option>
+                        <option value="市场涨跌">市场涨跌</option>
+                        <option value="主动转入/转出">主动转入／转出</option>
+                        <option value="估值调整">估值调整</option>
+                        <option value="偿还/新增负债">偿还／新增负债</option>
+                        <option value="数据修正">数据修正</option>
+                        <option value="其他">其他</option>
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {!isClosed && (
+            <button onClick={() => setCloseCheckOpen(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-medium">
+              <Lock className="w-4 h-4" />完成本月结账
+            </button>
+          )}
+
+          {isClosed && selectedSummary && (
+            <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="text-sm font-semibold text-slate-700">月度家庭简报</div>
+                <button onClick={copyMonthlyBrief} className={`shrink-0 text-xs px-3 py-1.5 rounded-lg ${copyStatus === 'copied' ? 'bg-emerald-50 text-emerald-600' : copyStatus === 'error' ? 'bg-rose-50 text-rose-600' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
+                  {copyStatus === 'copied' ? '已复制' : copyStatus === 'error' ? '复制失败' : '复制简报'}
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap font-sans text-xs text-slate-600 leading-5 bg-slate-50 rounded-lg p-3 border border-slate-100">{monthlyBrief}</pre>
+              {copyStatus === 'error' && <p className="text-xs text-rose-600 mt-2">当前浏览器未允许访问剪贴板，请长按上方文字手动复制。</p>}
+            </div>
+          )}
+
+          {isClosed && previousActions.length > 0 && (
+            <div className="bg-white rounded-xl p-4 border border-slate-200">
+              <div className="text-sm font-semibold text-slate-700 mb-1">上月行动复盘 · {previousMonth}</div>
+              <p className="text-xs text-slate-400 mb-2">在本月结账时确认上月行动是否完成</p>
+              <div className="space-y-2">
+                {previousActions.map((action) => (
+                  <label key={action.id} className="flex items-start gap-2 text-sm text-slate-600 cursor-pointer">
+                    <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(previousMonth, action.id)} className="mt-0.5 accent-indigo-600" />
+                    <span className="flex-1"><span className={action.done ? 'line-through text-slate-400' : ''}>{action.text}</span>
+                      {action.metric && action.metric !== 'none' && <span className="block text-xs text-slate-400 mt-0.5">{ACTION_METRICS[action.metric]} · 同期变化 {yuanSign(actionMetricChange(action.metric, previousSummary, selectedSummary))}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {isClosed && <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="text-sm font-semibold text-slate-700 mb-1">下月行动 · 最多 2 项</div>
+            <p className="text-xs text-slate-400 mb-2">行动会在下个月结账时自动出现，形成复盘闭环。</p>
+            {currentActions.length > 0 && <div className="space-y-2 mb-3">
+              {currentActions.map((action) => (
+                <div key={action.id} className="flex items-start gap-2 text-sm text-slate-600">
+                  <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(sel, action.id)} className="mt-0.5 accent-indigo-600" />
+                  <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}{action.metric && action.metric !== 'none' ? <span className="block text-xs text-slate-400 mt-0.5">观察：{ACTION_METRICS[action.metric]}</span> : null}</span>
+                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>}
+            {currentActions.length < 2 && <div className="grid sm:grid-cols-[1fr_9rem_auto] gap-2">
+              <input value={actionDraft} onChange={(e) => setActionDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addAction(); }} placeholder="例如：共同账户增加 5,000 元现金"
+                className="min-w-0 border border-slate-200 rounded-lg px-3 py-2 text-sm" />
+              <select value={actionMetric} onChange={(e) => setActionMetric(e.target.value)} aria-label="行动观察指标" className="border border-slate-200 rounded-lg px-2 py-2 text-sm bg-white text-slate-600">
+                {Object.entries(ACTION_METRICS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <button onClick={addAction} className="shrink-0 bg-indigo-600 text-white rounded-lg px-3 py-2 text-sm">添加</button>
+            </div>}
+          </div>}
         </>
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">历史记录（点月份可回到该月编辑）</div>
-        <div className="overflow-x-auto">
+        <button onClick={() => setHistoryOpen((open) => !open)} className={`w-full px-4 py-3 text-sm font-semibold text-slate-700 flex items-center justify-between ${historyOpen ? 'border-b border-slate-100' : ''}`}>
+          <span>历史记录 · {series.length} 个月</span>
+          <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${historyOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {historyOpen && <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-xs text-slate-400 bg-slate-50">
@@ -1932,7 +1885,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               ))}
             </tbody>
           </table>
-        </div>
+        </div>}
       </div>
       {deleteMonth && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
@@ -2002,6 +1955,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
+  const [formOpen, setFormOpen] = useState(goals.length === 0);
   const now = new Date();
   const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
   const priorityLabel = { high: '优先', medium: '正常', low: '以后' };
@@ -2033,13 +1987,15 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
     setDraft(emptyDraft);
     setEditingId(null);
     setError('');
+    setFormOpen(false);
   };
   const editGoal = (goal) => {
     setDraft({ name: goal.name, targetAmount: String(goal.targetAmount), currentAmount: String(goal.currentAmount || ''), targetDate: goal.targetDate, priority: goal.priority || 'medium', linkedAccountIds: Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [] });
     setEditingId(goal.id);
     setError('');
+    setFormOpen(true);
   };
-  const cancelEdit = () => { setDraft(emptyDraft); setEditingId(null); setError(''); };
+  const cancelEdit = () => { setDraft(emptyDraft); setEditingId(null); setError(''); setFormOpen(false); };
   const confirmDelete = () => {
     setGoals((prev) => prev.filter((goal) => goal.id !== deleteId));
     setGoalHistory((prev) => Object.fromEntries(Object.entries(prev).map(([month, snapshots]) => {
@@ -2053,7 +2009,13 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
+      {!formOpen && (
+        <div className="flex justify-end">
+          <button onClick={() => { setFormOpen(true); setEditingId(null); setDraft(emptyDraft); setError(''); }}
+            className="flex items-center gap-1 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2"><PlusCircle className="w-4 h-4" />新增目标</button>
+        </div>
+      )}
+      {formOpen && <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="font-semibold mb-1">{editingId ? '编辑家庭目标' : '新增家庭目标'}</div>
         <p className="text-xs text-slate-400 mb-3">目标金额用于衡量家庭计划，不会计入资产或影响月度结账。</p>
         <div className="grid sm:grid-cols-2 gap-3">
@@ -2103,7 +2065,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
           <button onClick={saveGoal} className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2">{editingId ? '更新目标' : '添加目标'}</button>
           {editingId && <button onClick={cancelEdit} className="text-sm text-slate-500 hover:bg-slate-100 rounded-lg px-4 py-2">取消</button>}
         </div>
-      </div>
+      </div>}
 
       {sortedGoals.length === 0 ? (
         <div className="bg-white rounded-xl p-8 border border-slate-200 text-center text-sm text-slate-400">暂无家庭目标，可以先从应急资金或近期生活计划开始。</div>
