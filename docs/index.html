@@ -1491,6 +1491,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
+  const newMonthIsValid = /^\d{4}-\d{2}$/.test(newMonth);
+  const newMonthExists = newMonthIsValid && Boolean(records[newMonth]);
+  const newMonthPreviousMonths = newMonthIsValid ? months.filter((m) => m < newMonth) : [];
+  const newMonthPrevious = newMonthPreviousMonths[newMonthPreviousMonths.length - 1];
+  const canChooseOrCreateMonth = newMonthIsValid && (newMonthExists || !newMonthPrevious || monthStatus[newMonthPrevious] === 'closed');
 
   const rec = records[sel] || {};
   const previousMonths = months.filter((m) => m < sel);
@@ -1518,6 +1523,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
     if (records[nm]) { setSel(nm); return; }
     const previousMonths = months.filter((m) => m < nm);
     const last = previousMonths[previousMonths.length - 1];
+    if (last && monthStatus[last] !== 'closed') return;
     const prefill = {};
     accounts.filter(isActive).forEach((a) => {
       if (a.type === 'asset' || a.type === 'liability') prefill[a.id] = (last && records[last]?.[a.id]) || 0;
@@ -1681,10 +1687,15 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
         <div className="ml-auto flex items-center gap-2">
           <input type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)}
             className="border border-slate-200 rounded-lg px-2 py-2 text-sm" />
-          <button onClick={addMonth} className="flex items-center gap-1 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg whitespace-nowrap">
+          <button onClick={addMonth} disabled={!canChooseOrCreateMonth}
+            title={!canChooseOrCreateMonth && newMonthPrevious ? `请先完成 ${newMonthPrevious} 结账` : ''}
+            className="flex items-center gap-1 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg whitespace-nowrap disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed">
             <PlusCircle className="w-4 h-4" />选择/新建
           </button>
         </div>
+        {!canChooseOrCreateMonth && newMonthIsValid && !newMonthExists && newMonthPrevious && (
+          <p className="w-full text-xs text-amber-600 text-right">请先完成 {newMonthPrevious} 的结账，才能新建 {newMonth}。</p>
+        )}
       </div>
 
       {!sel ? (
