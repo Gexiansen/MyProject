@@ -158,6 +158,7 @@ const pctSign = (v) => (v == null ? '-' : (v >= 0 ? '+' : '') + (v * 100).toFixe
 const fmtYuan = (v) => '¥' + Math.round(v).toLocaleString('zh-CN');
 const yuanSign = (v) => `${v >= 0 ? '+' : '-'}¥${Math.abs(Math.round(v)).toLocaleString('zh-CN')}`;
 const isActive = (a) => a.active !== false;
+const getAssetCategory = (account) => ['cash', 'investment', 'fixed'].includes(account?.category) ? account.category : 'cash';
 
 function makeRng(seed) {
   let s = seed;
@@ -172,10 +173,15 @@ function monthIndexFromKey(key) {
   const [year, month] = String(key || '').split('-').map(Number);
   return Number.isFinite(year) && Number.isFinite(month) ? year * 12 + month - 1 : null;
 }
-function resolveGoalCurrentAmount(goal, rec) {
+function resolveGoalCurrentAmount(goal, rec, accounts) {
   const linkedAccountIds = Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [];
   if (!linkedAccountIds.length) return Math.max(0, Number(goal.currentAmount) || 0);
-  return linkedAccountIds.reduce((sum, accountId) => sum + (Number(rec?.[accountId]) || 0), 0);
+  const eligibleAccountIds = Array.isArray(accounts) ? linkedAccountIds.filter((accountId) => {
+    const account = accounts.find((item) => item.id === accountId);
+    if (!account || account.type !== 'asset') return false;
+    return (goal.goalType || 'standard') === 'emergency' ? getAssetCategory(account) === 'cash' : getAssetCategory(account) !== 'fixed';
+  }) : linkedAccountIds;
+  return eligibleAccountIds.reduce((sum, accountId) => sum + (Number(rec?.[accountId]) || 0), 0);
 }
 function getGoalProgress(goal, currentMonthIndex, resolvedCurrentAmount) {
   const targetAmount = Number(goal.targetAmount) || 0;
@@ -334,8 +340,8 @@ function FamilyFinance({ onChangePassword }) {
         v = Number(v) || 0;
         if (a.type === 'asset') {
           assets += v;
-          if (a.category === 'investment') { invest += v; if (v > topInv) { topInv = v; topInvName = a.name; } }
-          else if (a.category === 'cash') cash += v;
+          if (getAssetCategory(a) === 'investment') { invest += v; if (v > topInv) { topInv = v; topInvName = a.name; } }
+          else if (getAssetCategory(a) === 'cash') cash += v;
           else fixed += v;
         } else if (a.type === 'liability') liab += v;
         else if (a.type === 'income') inc += v;
@@ -584,7 +590,7 @@ function FamilyFinance({ onChangePassword }) {
             goals={goals} setGoalHistory={setGoalHistory} />
         )}
         {tab === 'goals' && <Goals goals={goals} setGoals={setGoals} goalHistory={goalHistory} setGoalHistory={setGoalHistory}
-          accounts={accounts} records={records} latest={latest} />}
+          accounts={accounts} records={records} latest={latest} series={series} />}
         {tab === 'annual' && <Annual annual={annual} />}
       </main>
 
@@ -622,7 +628,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   const rec = records[latest.month] || {};
 
   const pieData = expandCat
-    ? accounts.filter((a) => a.type === 'asset' && a.category === expandCat)
+    ? accounts.filter((a) => a.type === 'asset' && getAssetCategory(a) === expandCat)
         .map((a) => ({ name: a.name, value: Number(rec[a.id]) || 0 }))
         .filter((x) => x.value > 0)
     : [
@@ -664,6 +670,13 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   const recentMonths = chartData.slice(-12);
   const recentAvgExp = recentMonths.length ? recentMonths.reduce((sum, s) => sum + s.exp, 0) / recentMonths.length : 0;
   const cashBufferMonths = recentAvgExp > 0 ? latest.cash / recentAvgExp : null;
+  const goalPriorityOrder = { high: 0, medium: 1, low: 2 };
+  const primaryEmergencyGoal = goals
+    .filter((goal) => goal?.goalType === 'emergency' && (Number(goal.targetAmount) || 0) > 0)
+    .sort((a, b) => (goalPriorityOrder[a.priority] ?? 1) - (goalPriorityOrder[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || '')))[0];
+  const emergencyCoverageTarget = primaryEmergencyGoal ? Number(primaryEmergencyGoal.coverageMonthsTarget) || 6 : 3;
+  const emergencyPreparedAmount = primaryEmergencyGoal ? resolveGoalCurrentAmount(primaryEmergencyGoal, rec, accounts) : latest.cash;
+  const emergencyCoverageMonths = recentAvgExp > 0 ? emergencyPreparedAmount / recentAvgExp : null;
   const liabilityIncrease = previousMonth ? latest.liab - previousMonth.liab : 0;
   const attentionItems = [];
   if (latest.saved < 0) attentionItems.push({
@@ -676,9 +689,11 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     detail: `本月结余 ${fmtWan(latest.saved)}，但净资产仍下降 ${fmtWan(Math.abs(latest.netChange))}，可结合“非收支变化”检查原因。`,
     tone: 'amber',
   });
-  if (cashBufferMonths != null && cashBufferMonths < 3) attentionItems.push({
+  if (emergencyCoverageMonths != null && emergencyCoverageMonths < emergencyCoverageTarget) attentionItems.push({
     title: '关注现金缓冲',
-    detail: `现金类资产按近 ${recentMonths.length} 个月平均支出可覆盖 ${cashBufferMonths.toFixed(1)} 个月，低于提示线 3 个月。`,
+    detail: primaryEmergencyGoal
+      ? `应急资金「${primaryEmergencyGoal.name}」已准备 ${fmtWan(emergencyPreparedAmount)}，按近 ${recentMonths.length} 个月平均支出可覆盖 ${emergencyCoverageMonths.toFixed(1)} 个月，低于家庭目标 ${emergencyCoverageTarget} 个月。`
+      : `现金类资产按近 ${recentMonths.length} 个月平均支出可覆盖 ${cashBufferMonths.toFixed(1)} 个月，尚未设置应急资金目标，暂按 3 个月提示。`,
     tone: 'amber',
   });
   if (liabilityIncrease > 0) attentionItems.push({
@@ -706,10 +721,18 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   });
   const goalNow = new Date();
   const goalCurrentMonthIndex = goalNow.getFullYear() * 12 + goalNow.getMonth();
-  const goalPriorityOrder = { high: 0, medium: 1, low: 2 };
   const goalPlans = goals
     .filter((goal) => goal && (Number(goal.targetAmount) || 0) > 0)
-    .map((goal) => ({ ...goal, ...getGoalProgress(goal, goalCurrentMonthIndex, resolveGoalCurrentAmount(goal, rec)) }))
+    .map((goal) => {
+      const progress = getGoalProgress(goal, goalCurrentMonthIndex, resolveGoalCurrentAmount(goal, rec, accounts));
+      return {
+        ...goal,
+        ...progress,
+        goalType: goal.goalType || 'standard',
+        coverageMonthsTarget: Number(goal.coverageMonthsTarget) || 6,
+        coverageMonths: goal.goalType === 'emergency' && recentAvgExp > 0 ? progress.currentAmount / recentAvgExp : null,
+      };
+    })
     .sort((a, b) => (goalPriorityOrder[a.priority] ?? 1) - (goalPriorityOrder[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || '')));
   const activeGoalPlans = goalPlans.filter((goal) => goal.gap > 0);
   const completedGoalCount = goalPlans.length - activeGoalPlans.length;
@@ -731,6 +754,11 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   const duplicateGoalAccounts = Object.keys(linkedAccountUsage).filter((accountId) => linkedAccountUsage[accountId] > 1);
   const accountIds = new Set(accounts.map((account) => account.id));
   const missingGoalAccounts = Object.keys(linkedAccountUsage).filter((accountId) => !accountIds.has(accountId));
+  const invalidGoalSourceLinks = goals.flatMap((goal) => (Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : []).filter((accountId) => {
+    const account = accounts.find((item) => item.id === accountId);
+    if (!account || account.type !== 'asset') return false;
+    return (goal.goalType || 'standard') === 'emergency' ? getAssetCategory(account) !== 'cash' : getAssetCategory(account) === 'fixed';
+  }));
   const exportDate = lastExportAt ? new Date(lastExportAt) : null;
   const exportDaysAgo = exportDate && !Number.isNaN(exportDate.getTime()) ? Math.floor((Date.now() - exportDate.getTime()) / 86400000) : null;
   const trustItems = [];
@@ -741,6 +769,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   if (monthMeta[latest.month]?.reopenedAt) trustItems.push({ title: '已结账月份重新编辑过', detail: `${latest.month} 曾在结账后重新打开，请确认修正结果。`, tone: 'amber' });
   if (duplicateGoalAccounts.length > 0) trustItems.push({ title: '目标资金重复计算', detail: `${duplicateGoalAccounts.length} 个资产账户同时关联多个目标。`, tone: 'rose' });
   if (missingGoalAccounts.length > 0) trustItems.push({ title: '目标关联账户已不存在', detail: `${missingGoalAccounts.length} 个目标资金账户无法在账户管理中找到。`, tone: 'rose' });
+  if (invalidGoalSourceLinks.length > 0) trustItems.push({ title: '目标资金来源不符合口径', detail: `${invalidGoalSourceLinks.length} 个关联账户已不计入目标进度，请到家庭目标中重新选择资金来源。`, tone: 'rose' });
   if (exportDaysAgo == null) trustItems.push({ title: '尚无导出备份记录', detail: '建议完成首次数据导出，并将 JSON 保存在其他位置。', tone: 'slate' });
   else if (exportDaysAgo > 30) trustItems.push({ title: '备份超过 30 天', detail: `距离上次导出已经 ${exportDaysAgo} 天。`, tone: 'amber' });
   const actionReviews = [];
@@ -788,7 +817,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
         <StatCard icon={Wallet} label="净资产" value={fmtWan(latest.nw)} tone="indigo"
           sub={latest.netChange != null ? `本月 ${wanSign(latest.netChange)}` : ''} />
         <StatCard icon={PiggyBank} label="本月攒的" value={fmtWan(latest.saved)} tone="amber" sub={`收入 ${fmtWan(latest.inc)} · 支出 ${fmtWan(latest.exp)}`} />
-        <StatCard icon={TrendingUp} label="总资产" value={fmtWan(latest.assets)} tone="emerald" sub={`投资 ${fmtWan(latest.invest)}`} />
+        <StatCard icon={TrendingUp} label="总资产" value={fmtWan(latest.assets)} tone="emerald" sub={`现金 ${fmtWan(latest.cash)} · 投资 ${fmtWan(latest.invest)} · 固定 ${fmtWan(latest.fixed)}`} />
         <StatCard icon={Target} label="总负债" value={fmtWan(latest.liab)} tone="rose" />
       </div>
 
@@ -814,9 +843,9 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             {activeGoalPlans.length > 0 ? <div className="space-y-2">
               {activeGoalPlans.slice(0, 3).map((goal) => (
                 <div key={goal.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                  <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium text-slate-700 truncate">{goal.name}</span><span className="text-slate-500 shrink-0">{(goal.progress * 100).toFixed(1)}%</span></div>
+                  <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium text-slate-700 truncate">{goal.name}{goal.goalType === 'emergency' ? ' · 应急资金' : ''}</span><span className="text-slate-500 shrink-0">{(goal.progress * 100).toFixed(1)}%</span></div>
                   <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, goal.progress * 100)}%` }} /></div>
-                  <div className="flex flex-wrap justify-between gap-1 text-xs text-slate-400 mt-1.5"><span>还差 {fmtWan(goal.gap)} · 目标 {goal.targetDate}</span><span className={goal.monthlyNeed == null ? 'text-rose-600' : 'text-indigo-600'}>{goal.monthlyNeed == null ? '已到期' : `每月需 ${fmtWan(goal.monthlyNeed)}`}</span></div>
+                  <div className="flex flex-wrap justify-between gap-1 text-xs text-slate-400 mt-1.5"><span>{goal.goalType === 'emergency' ? `覆盖 ${goal.coverageMonths == null ? '—' : goal.coverageMonths.toFixed(1)}／${goal.coverageMonthsTarget} 个月` : `还差 ${fmtWan(goal.gap)}`} · 目标 {goal.targetDate}</span><span className={goal.monthlyNeed == null ? 'text-rose-600' : 'text-indigo-600'}>{goal.monthlyNeed == null ? '已到期' : `每月需 ${fmtWan(goal.monthlyNeed)}`}</span></div>
                 </div>
               ))}
               {activeGoalPlans.length > 3 && <p className="text-xs text-slate-400">另有 {activeGoalPlans.length - 3} 个进行中的目标，请到「家庭目标」查看。</p>}
@@ -851,7 +880,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
         ) : (
           <p className="text-sm text-slate-600">本月未触发需要优先关注的项目，继续按当前节奏完成下月结账。</p>
         )}
-        <p className="text-xs text-slate-400 mt-2">提示规则：负结余、结余为正但净资产下降、现金缓冲低于 3 个月、负债环比增加或单一投资账户占比超过 50%。</p>
+        <p className="text-xs text-slate-400 mt-2">提示规则：负结余、结余为正但净资产下降、现金缓冲低于{primaryEmergencyGoal ? `家庭目标 ${emergencyCoverageTarget} 个月` : '默认 3 个月'}、负债环比增加或单一投资账户占比超过 50%。</p>
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
@@ -1288,7 +1317,7 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
                 <div key={a.id} className="flex items-center justify-between py-2">
                   <div className="min-w-0">
                     <div className="font-medium text-sm truncate">{a.name}
-                      {a.type === 'asset' && <span className="ml-2 text-xs text-slate-400">{CATS[a.category]}</span>}
+                      {a.type === 'asset' && <span className="ml-2 text-xs text-slate-400">{CATS[getAssetCategory(a)]}</span>}
                       {a.type === 'expense' && a.isFixed && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">固定 {a.fixedAmount}/月</span>}
                     </div>
                     <div className="text-xs text-slate-400">{a.member}</div>
@@ -1320,7 +1349,7 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
                 <div key={a.id} className="flex items-center justify-between py-2 opacity-70">
                   <div className="min-w-0">
                     <div className="font-medium text-sm truncate">{a.name}
-                      <span className="ml-2 text-xs text-slate-400">{typeLabel[a.type]}{a.type === 'asset' ? ` · ${CATS[a.category]}` : ''}</span>
+                      <span className="ml-2 text-xs text-slate-400">{typeLabel[a.type]}{a.type === 'asset' ? ` · ${CATS[getAssetCategory(a)]}` : ''}</span>
                     </div>
                     <div className="text-xs text-slate-400">{a.member}</div>
                   </div>
@@ -1433,13 +1462,18 @@ function AccountModal({ account, onSave, onClose }) {
             </select>
           </Field>
           {form.type === 'asset' && (
-            <Field label="资产大类">
-              <select value={form.category} onChange={(e) => set('category', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
-                <option value="cash">现金</option>
-                <option value="investment">投资</option>
-                <option value="fixed">固定资产</option>
-              </select>
-            </Field>
+            <div>
+              <Field label="资产大类">
+                <select value={getAssetCategory(form)} onChange={(e) => set('category', e.target.value)} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm">
+                  <option value="cash">现金类资产</option>
+                  <option value="investment">投资资产</option>
+                  <option value="fixed">固定资产</option>
+                </select>
+              </Field>
+              <p className="text-xs text-slate-400 mt-1 leading-5">
+                {getAssetCategory(form) === 'cash' ? '可随时用于生活和应急，可作为应急资金来源。' : getAssetCategory(form) === 'investment' ? '价值可能波动，不作为应急资金来源。' : '通常无法快速变现，不作为家庭目标资金来源。'}
+              </p>
+            </div>
           )}
           {form.type === 'expense' && (
             <div>
@@ -1565,7 +1599,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   };
 
   const groups = [
-    { type: 'asset', title: '资产（月末余额）' },
+    { type: 'asset', category: 'cash', title: '现金类资产（月末余额）' },
+    { type: 'asset', category: 'investment', title: '投资资产（月末余额）' },
+    { type: 'asset', category: 'fixed', title: '固定资产（月末余额）' },
     { type: 'liability', title: '负债（月末余额）' },
     { type: 'income', title: '收入（当月发生额）' },
     { type: 'expense', title: '支出（当月发生额）' },
@@ -1580,6 +1616,12 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   });
 
   const activeAccounts = accounts.filter(isActive);
+  const assetCategorySummary = ['cash', 'investment', 'fixed'].map((category) => {
+    const categoryAccounts = accounts.filter((account) => account.type === 'asset' && getAssetCategory(account) === category);
+    const current = categoryAccounts.reduce((sum, account) => sum + (Number(rec[account.id]) || 0), 0);
+    const previous = categoryAccounts.reduce((sum, account) => sum + (Number(previousRec[account.id]) || 0), 0);
+    return { category, current, change: current - previous };
+  });
   const closeBlockers = activeAccounts
     .filter((a) => !Object.prototype.hasOwnProperty.call(rec, a.id) || rec[a.id] === '' || rec[a.id] == null)
     .map((a) => `${a.type === 'expense' && a.isFixed ? '固定支出' : '账户'}「${a.member} · ${a.name}」未填写`);
@@ -1604,9 +1646,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       snapshots[goal.id] = {
         name: goal.name,
         targetAmount: Number(goal.targetAmount) || 0,
-        currentAmount: resolveGoalCurrentAmount(goal, rec),
+        currentAmount: resolveGoalCurrentAmount(goal, rec, accounts),
         targetDate: goal.targetDate,
         linkedAccountIds: Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [],
+        goalType: goal.goalType || 'standard',
+        coverageMonthsTarget: Number(goal.coverageMonthsTarget) || 6,
       };
     });
     setGoalHistory((prev) => ({ ...prev, [sel]: snapshots }));
@@ -1708,6 +1752,21 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             <MiniStat label="本月攒的" value={fmtWan(inc - exp)} c="text-indigo-600" />
           </div>
 
+          <div className="bg-white rounded-xl p-4 border border-slate-200">
+            <div className="text-sm font-semibold text-slate-700 mb-2">家庭资产大类</div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {assetCategorySummary.map((item) => (
+                <div key={item.category} className="bg-slate-50 rounded-lg px-1 py-2">
+                  <div className="text-xs text-slate-500">{item.category === 'cash' ? '现金类' : CATS[item.category]}</div>
+                  <div className="font-bold text-slate-700">{fmtWan(item.current)}</div>
+                  <div className={`text-xs mt-0.5 ${!previousMonth || item.change === 0 ? 'text-slate-400' : item.change > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                    {previousMonth ? `较上月 ${yuanSign(item.change)}` : '首月记录'}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {isClosed && (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
               <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -1729,10 +1788,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               <div key={member} id={`closing-${member}`} className={`${activeMember === member ? 'block' : 'hidden'} sm:block bg-white rounded-xl border border-slate-200 overflow-hidden`}>
                 <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700">{member}</div>
                 {groups.map((g) => {
-                  const rows = memberAccounts.filter((a) => a.type === g.type);
+                  const rows = memberAccounts.filter((a) => a.type === g.type && (!g.category || getAssetCategory(a) === g.category));
                   if (!rows.length) return null;
                   return (
-                    <div key={g.type} className="px-4 py-3 border-b border-slate-100 last:border-b-0">
+                    <div key={`${g.type}-${g.category || 'all'}`} className="px-4 py-3 border-b border-slate-100 last:border-b-0">
                       <div className="text-xs font-medium text-slate-400 mb-2">{g.title}</div>
                       <div className="space-y-3">
                         {rows.map((a) => {
@@ -1960,8 +2019,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
 }
 
 // ---------- 家庭目标 ----------
-function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records, latest }) {
-  const emptyDraft = { name: '', targetAmount: '', currentAmount: '', targetDate: '', priority: 'medium', linkedAccountIds: [] };
+function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records, latest, series }) {
+  const emptyDraft = { name: '', targetAmount: '', currentAmount: '', targetDate: '', priority: 'medium', goalType: 'standard', coverageMonthsTarget: '6', linkedAccountIds: [] };
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
@@ -1973,6 +2032,16 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
   const priorityTone = { high: 'bg-rose-50 text-rose-600', medium: 'bg-indigo-50 text-indigo-600', low: 'bg-slate-100 text-slate-500' };
   const assetAccounts = accounts.filter((account) => account.type === 'asset');
   const latestRec = records[latest?.month] || {};
+  const recentExpenseMonths = series.slice(-12);
+  const recentAvgExpense = recentExpenseMonths.length ? recentExpenseMonths.reduce((sum, item) => sum + item.exp, 0) / recentExpenseMonths.length : 0;
+  const coverageMonthsTarget = Number(draft.coverageMonthsTarget) || 0;
+  const suggestedEmergencyTarget = recentAvgExpense * coverageMonthsTarget;
+  const visibleAssetAccounts = assetAccounts.filter((account) => {
+    const checked = draft.linkedAccountIds.includes(account.id);
+    if (checked) return true;
+    if (draft.goalType === 'emergency') return getAssetCategory(account) === 'cash';
+    return getAssetCategory(account) !== 'fixed';
+  });
   const sortedGoals = goals.slice().sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
     return (order[a.priority] ?? 1) - (order[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || ''));
@@ -1984,15 +2053,27 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
     const currentAmount = Number(draft.currentAmount) || 0;
     const linkedAccountIds = Array.isArray(draft.linkedAccountIds) ? draft.linkedAccountIds : [];
     const conflictingAccounts = linkedAccountIds.filter((accountId) => goals.some((goal) => goal.id !== editingId && Array.isArray(goal.linkedAccountIds) && goal.linkedAccountIds.includes(accountId)));
+    const incompatibleSourceAccounts = linkedAccountIds.filter((accountId) => {
+      const category = getAssetCategory(assetAccounts.find((account) => account.id === accountId));
+      return draft.goalType === 'emergency' ? category !== 'cash' : category === 'fixed';
+    });
     if (!name || !(targetAmount > 0) || currentAmount < 0 || !draft.targetDate) {
       setError('请填写目标名称、目标金额和目标日期，当前已准备金额不能为负数。');
+      return;
+    }
+    if (draft.goalType === 'emergency' && !(coverageMonthsTarget > 0)) {
+      setError('应急资金的保障月数必须大于 0。');
+      return;
+    }
+    if (incompatibleSourceAccounts.length > 0) {
+      setError(draft.goalType === 'emergency' ? '应急资金只能关联现金类资产，请取消投资或固定资产账户。' : '固定资产不能作为目标资金来源，请先取消对应账户。');
       return;
     }
     if (conflictingAccounts.length > 0) {
       setError('同一个资产账户不能同时归属多个目标，请先取消其他目标中的关联。');
       return;
     }
-    const goal = { name, targetAmount, currentAmount, targetDate: draft.targetDate, priority: draft.priority, linkedAccountIds };
+    const goal = { name, targetAmount, currentAmount, targetDate: draft.targetDate, priority: draft.priority, goalType: draft.goalType, coverageMonthsTarget: draft.goalType === 'emergency' ? coverageMonthsTarget : 6, linkedAccountIds };
     if (editingId) setGoals((prev) => prev.map((item) => item.id === editingId ? { ...item, ...goal } : item));
     else setGoals((prev) => [...prev, { id: `goal_${Date.now()}`, ...goal }]);
     setDraft(emptyDraft);
@@ -2001,7 +2082,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
     setFormOpen(false);
   };
   const editGoal = (goal) => {
-    setDraft({ name: goal.name, targetAmount: String(goal.targetAmount), currentAmount: String(goal.currentAmount || ''), targetDate: goal.targetDate, priority: goal.priority || 'medium', linkedAccountIds: Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [] });
+    setDraft({ name: goal.name, targetAmount: String(goal.targetAmount), currentAmount: String(goal.currentAmount || ''), targetDate: goal.targetDate, priority: goal.priority || 'medium', goalType: goal.goalType || 'standard', coverageMonthsTarget: String(Number(goal.coverageMonthsTarget) || 6), linkedAccountIds: Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [] });
     setEditingId(goal.id);
     setError('');
     setFormOpen(true);
@@ -2030,6 +2111,13 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
         <div className="font-semibold mb-1">{editingId ? '编辑家庭目标' : '新增家庭目标'}</div>
         <p className="text-xs text-slate-400 mb-3">目标金额用于衡量家庭计划，不会计入资产或影响月度结账。</p>
         <div className="grid sm:grid-cols-2 gap-3">
+          <label className="text-sm text-slate-600">目标类型
+            <select value={draft.goalType} onChange={(e) => setDraft((d) => ({ ...d, goalType: e.target.value }))}
+              className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800 bg-white">
+              <option value="standard">普通家庭目标</option>
+              <option value="emergency">应急资金</option>
+            </select>
+          </label>
           <label className="text-sm text-slate-600">目标名称
             <input value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} placeholder="例如：6个月应急资金"
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
@@ -2038,12 +2126,26 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
             <input type="month" value={draft.targetDate} onChange={(e) => setDraft((d) => ({ ...d, targetDate: e.target.value }))}
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
           </label>
+          {draft.goalType === 'emergency' && <div className="sm:col-span-2 rounded-lg border border-indigo-100 bg-indigo-50 p-3">
+            <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+              <label className="text-sm text-slate-600 sm:w-36">保障月数
+                <input type="number" min="1" step="1" inputMode="numeric" value={draft.coverageMonthsTarget} onChange={(e) => setDraft((d) => ({ ...d, coverageMonthsTarget: e.target.value }))}
+                  className="mt-1 w-full border border-indigo-200 rounded-lg px-3 py-2 text-slate-800 bg-white" />
+              </label>
+              <div className="flex-1 text-xs text-slate-500 leading-5">
+                近 {recentExpenseMonths.length} 个月平均支出 {fmtYuan(recentAvgExpense)}，建议金额 {fmtYuan(suggestedEmergencyTarget)}。
+              </div>
+              <button type="button" disabled={!(suggestedEmergencyTarget > 0)} onClick={() => setDraft((d) => ({ ...d, targetAmount: String(Math.round(suggestedEmergencyTarget)) }))}
+                className="shrink-0 text-xs px-3 py-2 rounded-lg bg-white border border-indigo-200 text-indigo-600 disabled:text-slate-300 disabled:border-slate-200">使用建议金额</button>
+            </div>
+            <p className="text-xs text-slate-400 mt-2">建议金额只用于辅助填写，仍可手动调整；当前覆盖月数按实际准备金额除以近期平均月支出计算。</p>
+          </div>}
           <label className="text-sm text-slate-600">目标金额
             <input type="number" min="0" inputMode="decimal" value={draft.targetAmount} onChange={(e) => setDraft((d) => ({ ...d, targetAmount: e.target.value }))} placeholder="0"
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800" />
           </label>
           <label className="text-sm text-slate-600">当前已准备{draft.linkedAccountIds.length > 0 ? '（自动汇总）' : ''}
-            <input type="number" min="0" inputMode="decimal" value={draft.linkedAccountIds.length > 0 ? resolveGoalCurrentAmount({ linkedAccountIds: draft.linkedAccountIds }, latestRec) : draft.currentAmount} onChange={(e) => setDraft((d) => ({ ...d, currentAmount: e.target.value }))} placeholder="0"
+            <input type="number" min="0" inputMode="decimal" value={draft.linkedAccountIds.length > 0 ? resolveGoalCurrentAmount({ goalType: draft.goalType, linkedAccountIds: draft.linkedAccountIds }, latestRec, accounts) : draft.currentAmount} onChange={(e) => setDraft((d) => ({ ...d, currentAmount: e.target.value }))} placeholder="0"
               disabled={draft.linkedAccountIds.length > 0}
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800 disabled:bg-slate-100 disabled:text-slate-400" />
           </label>
@@ -2054,21 +2156,22 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
             </select>
           </label>
           <div className="sm:col-span-2">
-            <div className="text-sm text-slate-600 mb-1">关联资金账户（可选）</div>
-            {assetAccounts.length === 0 ? <p className="text-xs text-slate-400">暂无资产账户，继续使用手动金额。</p> : (
+            <div className="text-sm text-slate-600 mb-1">目标资金来源（可选）</div>
+            {visibleAssetAccounts.length === 0 ? <p className="text-xs text-slate-400">暂无符合条件的资产账户，继续使用手动金额。</p> : (
               <div className="grid sm:grid-cols-2 gap-2 rounded-lg border border-slate-200 p-3">
-                {assetAccounts.map((account) => {
+                {visibleAssetAccounts.map((account) => {
                   const usedByOther = goals.some((goal) => goal.id !== editingId && Array.isArray(goal.linkedAccountIds) && goal.linkedAccountIds.includes(account.id));
                   const checked = draft.linkedAccountIds.includes(account.id);
                   const unavailable = usedByOther && !checked;
+                  const incompatible = draft.goalType === 'emergency' ? getAssetCategory(account) !== 'cash' : getAssetCategory(account) === 'fixed';
                   return <label key={account.id} className={`flex items-start gap-2 text-sm ${unavailable ? 'text-slate-300' : 'text-slate-600 cursor-pointer'}`}>
                     <input type="checkbox" checked={checked} disabled={unavailable} onChange={(e) => setDraft((d) => ({ ...d, linkedAccountIds: e.target.checked ? [...d.linkedAccountIds, account.id] : d.linkedAccountIds.filter((id) => id !== account.id) }))} className="mt-0.5 accent-indigo-600" />
-                    <span className="flex-1">{account.member} · {account.name}{account.active === false ? '（已停用）' : ''}<span className="block text-xs text-slate-400">最新余额 {fmtYuan(latestRec[account.id] || 0)}{usedByOther ? ' · 已归属其他目标' : ''}</span></span>
+                    <span className="flex-1">{account.member} · {account.name}{account.active === false ? '（已停用）' : ''}<span className={`block text-xs ${incompatible ? 'text-rose-500' : 'text-slate-400'}`}>{CATS[getAssetCategory(account)]} · 最新余额 {fmtYuan(latestRec[account.id] || 0)}{usedByOther ? ' · 已归属其他目标' : ''}{incompatible ? draft.goalType === 'emergency' ? ' · 不符合应急资金来源' : ' · 固定资产不能作为目标来源' : ''}</span></span>
                   </label>;
                 })}
               </div>
             )}
-            <p className="text-xs text-slate-400 mt-1">关联后自动使用这些账户的最新余额；一个账户默认只能归属一个目标，避免重复计算。</p>
+            <p className="text-xs text-slate-400 mt-1">{draft.goalType === 'emergency' ? '应急资金只显示现金类资产，投资和固定资产不计入可随时使用的生活缓冲。' : '普通目标可使用现金或投资资产，固定资产不作为目标资金来源。'}关联后自动使用最新余额；一个账户默认只能归属一个目标。</p>
           </div>
         </div>
         {error && <p className="text-xs text-rose-600 mt-2">{error}</p>}
@@ -2084,7 +2187,10 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
         <div className="grid md:grid-cols-2 gap-3">
           {sortedGoals.map((goal) => {
             const linkedAccountIds = Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [];
-            const { targetAmount, currentAmount, gap, monthlyNeed, progress } = getGoalProgress(goal, currentMonthIndex, resolveGoalCurrentAmount(goal, latestRec));
+            const { targetAmount, currentAmount, gap, monthlyNeed, progress } = getGoalProgress(goal, currentMonthIndex, resolveGoalCurrentAmount(goal, latestRec, accounts));
+            const isEmergency = goal.goalType === 'emergency';
+            const goalCoverageTarget = Number(goal.coverageMonthsTarget) || 6;
+            const currentCoverageMonths = recentAvgExpense > 0 ? currentAmount / recentAvgExpense : null;
             const history = Object.keys(goalHistory).sort().map((month) => ({ month, ...(goalHistory[month]?.[goal.id] || {}) }))
               .filter((snapshot) => snapshot.currentAmount != null);
             const latestSnapshot = history[history.length - 1];
@@ -2101,7 +2207,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
             return <div key={goal.id} className="bg-white rounded-xl p-4 border border-slate-200">
               <div className="flex items-start gap-2">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span></div>
+                  <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span>{isEmergency && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-600">应急资金</span>}</div>
                   <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}{linkedAccountIds.length > 0 ? ` · 自动汇总 ${linkedAccountIds.length} 个账户` : ' · 手动金额'}</p>
                 </div>
                 <button onClick={() => editGoal(goal)} className="text-slate-400 hover:text-indigo-600" title={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
@@ -2109,6 +2215,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
               </div>
               <div className="flex justify-between text-sm mt-3"><span className="text-slate-500">{fmtWan(currentAmount)} / {fmtWan(targetAmount)}</span><span className="font-medium text-indigo-600">{(progress * 100).toFixed(1)}%</span></div>
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
+              {isEmergency && <p className="text-xs text-sky-600 mt-2">当前可覆盖 {currentCoverageMonths == null ? '—' : currentCoverageMonths.toFixed(1)} 个月 · 家庭目标 {goalCoverageTarget} 个月</p>}
               <div className="grid grid-cols-2 gap-2 mt-3 text-center">
                 <MiniStat label="还差" value={fmtWan(gap)} c={gap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
                 <MiniStat label="按期每月需准备" value={gap === 0 ? '已完成' : monthlyNeed == null ? '已到期' : fmtWan(monthlyNeed)} c={gap === 0 ? 'text-emerald-600' : 'text-indigo-600'} />
