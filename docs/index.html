@@ -1541,20 +1541,40 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const currentActions = Array.isArray(monthMeta[sel]?.actions) ? monthMeta[sel].actions : [];
   const previousActions = Array.isArray(monthMeta[previousMonth]?.actions) ? monthMeta[previousMonth].actions : [];
   useEffect(() => { setActionDraft(''); setActionMetric('none'); setCopyStatus(''); }, [sel]);
+  const isTrackedFlowAccount = (account) => account?.type === 'income' || (account?.type === 'expense' && !account.isFixed);
+  const markInputReviewed = (account) => {
+    if (!sel || isClosed || !account) return;
+    setMonthMeta((prev) => {
+      const meta = prev[sel] || {};
+      const nextMeta = { ...meta };
+      let changed = false;
+      if (account.type === 'asset' || account.type === 'liability') {
+        const inheritedBalanceIds = Array.isArray(meta.inheritedBalanceIds) ? meta.inheritedBalanceIds : [];
+        const reviewedBalanceIds = Array.isArray(meta.reviewedBalanceIds) ? meta.reviewedBalanceIds : [];
+        if (inheritedBalanceIds.includes(account.id) && !reviewedBalanceIds.includes(account.id)) {
+          nextMeta.reviewedBalanceIds = [...reviewedBalanceIds, account.id];
+          changed = true;
+        }
+      }
+      if (isTrackedFlowAccount(account)) {
+        const inferredFlowIds = Array.isArray(meta.inheritedBalanceIds) && !Array.isArray(meta.initialFlowIds) && !meta.reopenedAt
+          ? accounts.filter(isActive).filter(isTrackedFlowAccount).map((item) => item.id) : [];
+        const initialFlowIds = Array.isArray(meta.initialFlowIds) ? meta.initialFlowIds : inferredFlowIds;
+        const reviewedFlowIds = Array.isArray(meta.reviewedFlowIds) ? meta.reviewedFlowIds : [];
+        if (initialFlowIds.includes(account.id) && !reviewedFlowIds.includes(account.id)) {
+          nextMeta.reviewedFlowIds = [...reviewedFlowIds, account.id];
+          changed = true;
+        }
+      }
+      return changed ? { ...prev, [sel]: nextMeta } : prev;
+    });
+  };
   const setVal = (id, v) => {
     if (!sel || isClosed) return;
     const value = v === '' ? '' : (Number(v) || 0);
     setRecords((prev) => ({ ...prev, [sel]: { ...prev[sel], [id]: value } }));
     const account = accounts.find((a) => a.id === id);
-    if (account && (account.type === 'asset' || account.type === 'liability')) {
-      setMonthMeta((prev) => {
-        const meta = prev[sel] || {};
-        const inheritedBalanceIds = Array.isArray(meta.inheritedBalanceIds) ? meta.inheritedBalanceIds : [];
-        const reviewedBalanceIds = Array.isArray(meta.reviewedBalanceIds) ? meta.reviewedBalanceIds : [];
-        if (!inheritedBalanceIds.includes(id) || reviewedBalanceIds.includes(id)) return prev;
-        return { ...prev, [sel]: { ...meta, reviewedBalanceIds: [...reviewedBalanceIds, id] } };
-      });
-    }
+    markInputReviewed(account);
     if (account?.type === 'expense' && account.isFixed && sel === months[months.length - 1]) {
       setAccounts((prev) => prev.map((a) => a.id === id ? { ...a, fixedAmount: value === '' ? 0 : value } : a));
     }
@@ -1575,9 +1595,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       else prefill[a.id] = 0;
     });
     const inheritedBalanceIds = last ? activeAccounts.filter((a) => a.type === 'asset' || a.type === 'liability').map((a) => a.id) : [];
+    const initialFlowIds = activeAccounts.filter(isTrackedFlowAccount).map((a) => a.id);
     setRecords((prev) => ({ ...prev, [nm]: prefill }));
     setMonthStatus((prev) => ({ ...prev, [nm]: 'draft' }));
-    setMonthMeta((prev) => ({ ...prev, [nm]: { ...(prev[nm] || {}), inheritedBalanceIds, reviewedBalanceIds: [] } }));
+    setMonthMeta((prev) => ({ ...prev, [nm]: { ...(prev[nm] || {}), inheritedBalanceIds, reviewedBalanceIds: [], initialFlowIds, reviewedFlowIds: [] } }));
     setSel(nm);
     setNewMonth(nextMonth(nm));
   };
@@ -1628,11 +1649,19 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   });
 
   const activeAccounts = accounts.filter(isActive);
-  const inheritedBalanceIds = Array.isArray(monthMeta[sel]?.inheritedBalanceIds) ? monthMeta[sel].inheritedBalanceIds : [];
-  const reviewedBalanceIds = Array.isArray(monthMeta[sel]?.reviewedBalanceIds) ? monthMeta[sel].reviewedBalanceIds : [];
+  const currentMonthMeta = monthMeta[sel] || {};
+  const inheritedBalanceIds = Array.isArray(currentMonthMeta.inheritedBalanceIds) ? currentMonthMeta.inheritedBalanceIds : [];
+  const reviewedBalanceIds = Array.isArray(currentMonthMeta.reviewedBalanceIds) ? currentMonthMeta.reviewedBalanceIds : [];
+  const inferredFlowIds = Array.isArray(currentMonthMeta.inheritedBalanceIds) && !Array.isArray(currentMonthMeta.initialFlowIds) && !isClosed && !currentMonthMeta.reopenedAt
+    ? activeAccounts.filter(isTrackedFlowAccount).map((account) => account.id) : [];
+  const initialFlowIds = Array.isArray(currentMonthMeta.initialFlowIds) ? currentMonthMeta.initialFlowIds : inferredFlowIds;
+  const reviewedFlowIds = Array.isArray(currentMonthMeta.reviewedFlowIds) ? currentMonthMeta.reviewedFlowIds : [];
   const pendingBalanceAccounts = activeAccounts.filter((account) => (account.type === 'asset' || account.type === 'liability')
     && inheritedBalanceIds.includes(account.id) && !reviewedBalanceIds.includes(account.id));
-  const pendingBalanceCountByMember = Object.fromEntries(closingMembers.map((member) => [member, pendingBalanceAccounts.filter((account) => account.member === member).length]));
+  const pendingFlowAccounts = activeAccounts.filter((account) => isTrackedFlowAccount(account)
+    && initialFlowIds.includes(account.id) && !reviewedFlowIds.includes(account.id));
+  const pendingInputAccounts = [...pendingBalanceAccounts, ...pendingFlowAccounts];
+  const pendingInputCountByMember = Object.fromEntries(closingMembers.map((member) => [member, pendingInputAccounts.filter((account) => account.member === member).length]));
   const assetCategorySummary = ['cash', 'investment', 'fixed'].map((category) => {
     const categoryAccounts = accounts.filter((account) => account.type === 'asset' && getAssetCategory(account) === category);
     const current = categoryAccounts.reduce((sum, account) => sum + (Number(rec[account.id]) || 0), 0);
@@ -1671,11 +1700,16 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       };
     });
     setGoalHistory((prev) => ({ ...prev, [sel]: snapshots }));
-    if (pendingBalanceAccounts.length > 0) {
+    if (pendingInputAccounts.length > 0) {
       setMonthMeta((prev) => {
         const meta = prev[sel] || {};
-        const reviewed = Array.isArray(meta.reviewedBalanceIds) ? meta.reviewedBalanceIds : [];
-        return { ...prev, [sel]: { ...meta, reviewedBalanceIds: [...new Set([...reviewed, ...pendingBalanceAccounts.map((account) => account.id)])] } };
+        const reviewedBalances = Array.isArray(meta.reviewedBalanceIds) ? meta.reviewedBalanceIds : [];
+        const reviewedFlows = Array.isArray(meta.reviewedFlowIds) ? meta.reviewedFlowIds : [];
+        return { ...prev, [sel]: {
+          ...meta,
+          reviewedBalanceIds: [...new Set([...reviewedBalances, ...pendingBalanceAccounts.map((account) => account.id)])],
+          reviewedFlowIds: [...new Set([...reviewedFlows, ...pendingFlowAccounts.map((account) => account.id)])],
+        } };
       });
     }
     setMonthStatus((prev) => ({ ...prev, [sel]: 'closed' }));
@@ -1791,10 +1825,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             </div>
           </div>
 
-          {!isClosed && pendingBalanceAccounts.length > 0 && (
+          {!isClosed && pendingInputAccounts.length > 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <span className="w-4 h-4 rounded border border-amber-300 bg-amber-50 shrink-0" />
-              <span>橙色输入框表示沿用上月金额，当前还有 {pendingBalanceAccounts.length} 项待核对，结账时会统一确认。</span>
+              <span>橙色输入框表示本月尚未处理：资产、负债沿用上月，收入、非固定支出初始为 0。当前还有 {pendingInputAccounts.length} 项，结账时会统一确认。</span>
             </div>
           )}
 
@@ -1811,7 +1845,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               <button key={member} onClick={() => setActiveMember(member)}
                 className={`rounded-lg px-3 py-2 text-sm flex items-center justify-center gap-1.5 ${activeMember === member ? 'bg-indigo-600 text-white font-medium' : 'text-slate-500'}`}>
                 <span>{member}</span>
-                {!isClosed && pendingBalanceCountByMember[member] > 0 && <span className={`min-w-5 h-5 px-1 rounded-full text-xs inline-flex items-center justify-center ${activeMember === member ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-700'}`}>{pendingBalanceCountByMember[member]}</span>}
+                {!isClosed && pendingInputCountByMember[member] > 0 && <span className={`min-w-5 h-5 px-1 rounded-full text-xs inline-flex items-center justify-center ${activeMember === member ? 'bg-white text-amber-600' : 'bg-amber-100 text-amber-700'}`}>{pendingInputCountByMember[member]}</span>}
               </button>
             ))}
           </div>
@@ -1822,7 +1856,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
               <div key={member} id={`closing-${member}`} className={`${activeMember === member ? 'block' : 'hidden'} sm:block bg-white rounded-xl border border-slate-200 overflow-hidden`}>
                 <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 font-semibold text-slate-700 flex items-center gap-2">
                   <span>{member}</span>
-                  {!isClosed && pendingBalanceCountByMember[member] > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-700 text-xs inline-flex items-center justify-center">{pendingBalanceCountByMember[member]}</span>}
+                  {!isClosed && pendingInputCountByMember[member] > 0 && <span className="min-w-5 h-5 px-1 rounded-full bg-amber-100 text-amber-700 text-xs inline-flex items-center justify-center">{pendingInputCountByMember[member]}</span>}
                 </div>
                 {groups.map((g) => {
                   const rows = memberAccounts.filter((a) => a.type === g.type && (!g.category || getAssetCategory(a) === g.category));
@@ -1837,6 +1871,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                           const change = currentValue - previousValue;
                           const showPrevious = a.type === 'asset' || a.type === 'liability';
                           const isPendingBalance = !isClosed && inheritedBalanceIds.includes(a.id) && !reviewedBalanceIds.includes(a.id);
+                          const isPendingFlow = !isClosed && initialFlowIds.includes(a.id) && !reviewedFlowIds.includes(a.id);
+                          const isPendingInput = isPendingBalance || isPendingFlow;
                           return (
                             <div key={a.id} className="flex items-start gap-3">
                               <div className="flex-1 min-w-0 pt-1">
@@ -1852,11 +1888,12 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                                   ) : <div className="text-xs text-slate-400 mt-0.5">暂无上月数据</div>
                                 )}
                               </div>
-                              <input type="text" inputMode="decimal" aria-label={`${member} ${a.name}${isPendingBalance ? ' 待核对' : ''}`} title={isPendingBalance ? '沿用上月金额，结账时将统一确认' : undefined} value={rec[a.id] ?? ''}
+                              <input type="text" inputMode="decimal" aria-label={`${member} ${a.name}${isPendingInput ? ' 待处理' : ''}`} title={isPendingBalance ? '沿用上月金额，结账时将统一确认' : isPendingFlow ? '本月仍为初始值 0，结账时将统一确认' : undefined} value={rec[a.id] ?? ''}
                                 onFocus={(e) => e.currentTarget.select()}
+                                onInput={() => markInputReviewed(a)}
                                 onChange={(e) => setVal(a.id, e.target.value)} onBlur={(e) => { if (e.target.value === '') setVal(a.id, 0); }}
                                 disabled={isClosed}
-                                className={`w-32 border rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${isPendingBalance ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`} />
+                                className={`w-32 border rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${isPendingInput ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`} />
                             </div>
                           );
                         })}
@@ -2047,6 +2084,15 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 <p className="text-xs text-slate-500 mt-2">确认结账后，系统会把这些余额视为本月已核对且没有变化。</p>
               </div>
             )}
+            {pendingFlowAccounts.length > 0 && (
+              <div className="mb-4">
+                <p className="text-sm font-medium text-amber-700 mb-2">以下收入或非固定支出仍使用本月初始值 0：</p>
+                <ul className="space-y-1 text-sm text-amber-800 bg-amber-50 rounded-lg p-3">
+                  {pendingFlowAccounts.map((account) => <li key={account.id}>• {account.member} · {account.name}：{fmtYuan(rec[account.id] || 0)}</li>)}
+                </ul>
+                <p className="text-xs text-slate-500 mt-2">确认结账后，系统会把这些项目视为本月确实为 0。</p>
+              </div>
+            )}
             {closeWarnings.length > 0 ? (
               <div className="mb-4">
                 <p className="text-sm font-medium text-amber-700 mb-2">请确认以下提醒，确认无误后仍可结账：</p>
@@ -2054,10 +2100,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                   {closeWarnings.map((item, i) => <li key={`${item}-${i}`}>• {item}</li>)}
                 </ul>
               </div>
-            ) : !closeBlockers.length && pendingBalanceAccounts.length === 0 && <p className="text-sm text-slate-500 mb-4">未发现异常提醒。</p>}
+            ) : !closeBlockers.length && pendingInputAccounts.length === 0 && <p className="text-sm text-slate-500 mb-4">未发现异常提醒。</p>}
             <div className="flex gap-2 justify-end">
               <button onClick={() => setCloseCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">{closeBlockers.length ? '返回补充' : '取消'}</button>
-              {!closeBlockers.length && <button onClick={closeMonth} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{pendingBalanceAccounts.length > 0 ? '确认沿用并结账' : '确认结账'}</button>}
+              {!closeBlockers.length && <button onClick={closeMonth} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{pendingInputAccounts.length > 0 ? '确认以上数值并结账' : '确认结账'}</button>}
             </div>
           </div>
         </div>
