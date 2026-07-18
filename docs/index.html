@@ -424,6 +424,12 @@ function FamilyFinance({ onChangePassword }) {
     let prevEnd = null;
     return years.map((y) => {
       const arr = byYear[y];
+      const startMonth = Number(arr[0].month.slice(5, 7));
+      const endMonth = Number(arr[arr.length - 1].month.slice(5, 7));
+      const monthCount = arr.length;
+      const isFullYear = startMonth === 1 && endMonth === 12 && monthCount === 12;
+      const periodLabel = isFullYear ? `${y}年全年` : startMonth === endMonth ? `${y}年${startMonth}月` : `${y}年${startMonth}—${endMonth}月`;
+      const periodShortLabel = isFullYear ? `${y}全年` : startMonth === 1 ? `${y}截至${endMonth}月` : `${y} ${startMonth}—${endMonth}月`;
       const last = arr[arr.length - 1];
       const savedSum = arr.reduce((s, x) => s + x.saved, 0);
       const nonCashChangeSum = arr.reduce((s, x) => s + x.nonCashChange, 0);
@@ -432,7 +438,8 @@ function FamilyFinance({ onChangePassword }) {
       const prevNW = prevEnd ? prevEnd.nw : null;
       const prevLiab = prevEnd ? prevEnd.liab : arr[0].liab;
       const res = {
-        year: y, netWorth: last.nw, saved: savedSum, nonCashChange: nonCashChangeSum, growth: savedSum + nonCashChangeSum,
+        year: y, startMonth, endMonth, monthCount, isFullYear, periodLabel, periodShortLabel,
+        netWorth: last.nw, saved: savedSum, nonCashChange: nonCashChangeSum, growth: savedSum + nonCashChangeSum,
         income: incSum, expenses: expSum, savingsRate: incSum ? savedSum / incSum : 0,
         totalAssets: last.assets, liabilities: last.liab, debtReduced: prevLiab - last.liab,
         concentration: last.concentration,
@@ -443,6 +450,10 @@ function FamilyFinance({ onChangePassword }) {
       return res;
     });
   }, [series]);
+
+  const latestDataLabel = latest
+    ? `数据截至 ${Number(latest.month.slice(0, 4))}年${Number(latest.month.slice(5, 7))}月 · ${monthStatus[latest.month] === 'closed' ? '已结账' : '录入中'}`
+    : '尚未建立月度记录';
 
   const exportData = () => {
     const exportedAt = new Date().toISOString();
@@ -512,11 +523,16 @@ function FamilyFinance({ onChangePassword }) {
     <div className="min-h-screen bg-slate-100 text-slate-800">
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 min-w-0">
             <PiggyBank className="w-6 h-6 text-indigo-600" />
-            <h1 className="font-bold text-lg">家庭财务</h1>
-            {saveStatus === 'saved' && <span className="text-xs text-emerald-600 ml-1">已保存 ✓</span>}
-            {saveStatus === 'error' && <span className="text-xs text-rose-600 ml-1">本机保存失败</span>}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h1 className="font-bold text-lg leading-5">家庭财务</h1>
+                {saveStatus === 'saved' && <span className="text-xs text-emerald-600">已保存 ✓</span>}
+                {saveStatus === 'error' && <span className="text-xs text-rose-600">本机保存失败</span>}
+              </div>
+              <p className="text-[11px] leading-4 text-slate-400 truncate">{latestDataLabel}</p>
+            </div>
           </div>
           <div className="ml-auto hidden sm:flex flex-wrap items-center justify-end gap-2">
             <button onClick={exportData} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
@@ -2356,8 +2372,8 @@ function Annual({ annual }) {
   if (!annual.length) return <p className="text-slate-500">暂无数据</p>;
 
   const chartData = annual.map((a) => ({
-    year: a.year,
-    净资产: Math.round(a.netWorth / 10000),
+    period: a.periodShortLabel,
+    期末净资产: Math.round(a.netWorth / 10000),
     攒的: Math.round(a.saved / 10000),
     非收支变化: Math.round(a.nonCashChange / 10000),
   }));
@@ -2370,14 +2386,17 @@ function Annual({ annual }) {
   return (
     <div className="space-y-4">
       <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">增长拆解 · {latestY.year}</div>
+        <div className="flex flex-wrap items-center gap-2 mb-2">
+          <div className="font-semibold">增长拆解 · {latestY.periodLabel}</div>
+          {!latestY.isFullYear && <span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">已记录 {latestY.monthCount} 个月</span>}
+        </div>
         {latestY.yoyAbs == null ? (
-          <p className="text-sm text-slate-500">首个记账年度，暂无同比数据。年内净资产变化 {wanSign(latestY.growth)}。</p>
+          <p className="text-sm text-slate-500">首个记账区间，暂无上年末数据。区间净资产变化 {wanSign(latestY.growth)}。</p>
         ) : (
           <>
             <p className="text-sm text-slate-600 mb-1">
-              年末净资产 <span className="font-bold text-indigo-600">{fmtWan(latestY.netWorth)}</span>，
-              较上年 <span className={latestY.yoyAbs >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>{wanSign(latestY.yoyAbs)}（{pctSign(latestY.yoyPct)}）</span>
+              期末净资产 <span className="font-bold text-indigo-600">{fmtWan(latestY.netWorth)}</span>，
+              较上年末 <span className={latestY.yoyAbs >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>{wanSign(latestY.yoyAbs)}（{pctSign(latestY.yoyPct)}）</span>
             </p>
             <p className="text-sm text-slate-600 mb-2">
               其中：自己攒的 <span className="text-emerald-600 font-medium">{wanSign(latestY.saved)}</span> ＋ 非收支变化 <span className="text-amber-600 font-medium">{wanSign(latestY.nonCashChange)}</span>
@@ -2398,15 +2417,15 @@ function Annual({ annual }) {
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">年末净资产（万元）</div>
+        <div className="font-semibold mb-2">期末净资产（万元）</div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="period" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v) => v + '万'} />
-              <Bar dataKey="净资产" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="期末净资产" fill="#6366f1" radius={[4, 4, 0, 0]} />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -2418,7 +2437,7 @@ function Annual({ annual }) {
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} stackOffset="sign">
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+              <XAxis dataKey="period" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v) => v + '万'} />
               <Legend />
@@ -2435,23 +2454,23 @@ function Annual({ annual }) {
         <table className="w-full text-sm whitespace-nowrap">
           <thead>
             <tr className="text-slate-400 border-b border-slate-100">
-              <th className="text-left py-2 font-medium sticky left-0 bg-white">年份</th>
-              <th className="text-right py-2 px-3 font-medium">年末净资产</th>
-              <th className="text-right py-2 px-3 font-medium">同比</th>
-              <th className="text-right py-2 px-3 font-medium">年度增长</th>
+              <th className="text-left py-2 font-medium sticky left-0 bg-white">统计区间</th>
+              <th className="text-right py-2 px-3 font-medium">期末净资产</th>
+              <th className="text-right py-2 px-3 font-medium">较上年末</th>
+              <th className="text-right py-2 px-3 font-medium">区间增长</th>
               <th className="text-right py-2 px-3 font-medium">攒的</th>
               <th className="text-right py-2 px-3 font-medium">非收支变化</th>
               <th className="text-right py-2 px-3 font-medium">储蓄率</th>
-              <th className="text-right py-2 px-3 font-medium">年末总资产</th>
-              <th className="text-right py-2 px-3 font-medium">年末负债</th>
-              <th className="text-right py-2 px-3 font-medium">年内减债</th>
+              <th className="text-right py-2 px-3 font-medium">期末总资产</th>
+              <th className="text-right py-2 px-3 font-medium">期末负债</th>
+              <th className="text-right py-2 px-3 font-medium">区间减债</th>
               <th className="text-right py-2 px-3 font-medium">集中度</th>
             </tr>
           </thead>
           <tbody>
             {annual.map((a) => (
               <tr key={a.year} className="border-b border-slate-50">
-                <td className="py-2 font-medium sticky left-0 bg-white">{a.year}</td>
+                <td className="py-2 font-medium sticky left-0 bg-white">{a.periodShortLabel}</td>
                 <td className="text-right px-3 font-medium">{fmtWan(a.netWorth)}</td>
                 <td className={`text-right px-3 ${a.yoyPct == null ? 'text-slate-400' : a.yoyPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{a.yoyPct == null ? '首年' : pctSign(a.yoyPct)}</td>
                 <td className="text-right px-3 text-indigo-600">{wanSign(a.growth)}</td>
@@ -2466,7 +2485,7 @@ function Annual({ annual }) {
             ))}
           </tbody>
         </table>
-        <p className="text-xs text-slate-400 mt-2">「同比」为年末净资产较上一年末的变化；首年因缺上一年末数据，仅统计当年区间内变化。</p>
+        <p className="text-xs text-slate-400 mt-2">「较上年末」为本统计期末净资产较上一年度最后一条记录的变化；首个记账区间因缺少上年末数据，仅展示当前区间结果。</p>
       </div>
     </div>
   );
