@@ -311,8 +311,9 @@ function FamilyFinance({ onChangePassword }) {
   const [saveStatus, setSaveStatus] = useState('');
   const [resetOpen, setResetOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const fileRef = useRef(null);
+  const moreMenuRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -324,6 +325,15 @@ function FamilyFinance({ onChangePassword }) {
       return () => clearTimeout(t);
     } catch (e) { setSaveStatus('error'); }
   }, [accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt]);
+
+  useEffect(() => {
+    if (!moreMenuOpen) return;
+    const closeOnOutsidePointer = (event) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target)) setMoreMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [moreMenuOpen]);
 
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
@@ -511,12 +521,11 @@ function FamilyFinance({ onChangePassword }) {
     setTab('accounts');
   };
 
-  const tabs = [
+  const primaryTabs = [
     { key: 'overview', label: '总览', icon: Home },
-    { key: 'accounts', label: '账户管理', icon: ListChecks },
+    { key: 'annual', label: '年度小结', icon: BarChart3 },
     { key: 'closing', label: '月度结账', icon: CalendarClock },
     { key: 'goals', label: '家庭目标', icon: Target },
-    { key: 'annual', label: '年度小结', icon: BarChart3 },
   ];
 
   return (
@@ -534,58 +543,34 @@ function FamilyFinance({ onChangePassword }) {
               <p className="text-[11px] leading-4 text-slate-400 truncate">{latestDataLabel}</p>
             </div>
           </div>
-          <div className="ml-auto hidden sm:flex flex-wrap items-center justify-end gap-2">
-            <button onClick={exportData} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
-              <Upload className="w-4 h-4" /> 导出
+          <div ref={moreMenuRef} className="relative ml-auto">
+            <button onClick={() => setMoreMenuOpen((open) => !open)} aria-expanded={moreMenuOpen} aria-haspopup="menu"
+              className={`flex items-center gap-1 text-xs px-2.5 py-2 rounded-lg ${tab === 'accounts' || moreMenuOpen ? 'bg-indigo-50 text-indigo-600 font-medium' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+              <MoreHorizontal className="w-4 h-4" />更多
             </button>
-            <button onClick={() => fileRef.current?.click()} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
-              <Download className="w-4 h-4" /> 导入
-            </button>
-            <button onClick={() => setResetOpen(true)} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
-              <Power className="w-4 h-4" /> 重置
-            </button>
-            <button onClick={() => setPasswordOpen(true)} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200">
-              <Lock className="w-4 h-4" /> 改密码
-            </button>
-            <input ref={fileRef} type="file" accept=".json,application/json" onChange={importData} className="hidden" />
+            {moreMenuOpen && (
+              <div role="menu" className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl p-2 z-30">
+                <button role="menuitem" onClick={() => { setTab('accounts'); setMoreMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg ${tab === 'accounts' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}><ListChecks className="w-4 h-4" />账户管理</button>
+                <div className="my-1 border-t border-slate-100" />
+                <button role="menuitem" onClick={() => { exportData(); setMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Upload className="w-4 h-4" />导出数据</button>
+                <button role="menuitem" onClick={() => { fileRef.current?.click(); setMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Download className="w-4 h-4" />导入数据</button>
+                <button role="menuitem" onClick={() => { setPasswordOpen(true); setMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Lock className="w-4 h-4" />修改密码</button>
+                <button role="menuitem" onClick={() => { setResetOpen(true); setMoreMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-rose-600 rounded-lg hover:bg-rose-50"><Power className="w-4 h-4" />重置数据</button>
+              </div>
+            )}
           </div>
+          <input ref={fileRef} type="file" accept=".json,application/json" onChange={importData} className="hidden" />
         </div>
-        <div className="max-w-4xl mx-auto px-2 hidden sm:flex gap-1 overflow-x-auto">
-          {tabs.map((t) => {
+        <div className="max-w-4xl mx-auto px-2 grid grid-cols-4 gap-1 sm:flex">
+          {primaryTabs.map((t) => {
             const Icon = t.icon;
             return (
-              <button key={t.key} onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1 px-3 py-2 text-sm whitespace-nowrap border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
+              <button key={t.key} onClick={() => { setTab(t.key); setMoreMenuOpen(false); }}
+                className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-1 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
                 <Icon className="w-4 h-4" /> {t.label}
               </button>
             );
           })}
-        </div>
-        <div className="max-w-4xl mx-auto px-2 grid grid-cols-4 gap-1 sm:hidden relative">
-          {tabs.filter((t) => ['overview', 'closing', 'goals'].includes(t.key)).map((t) => {
-            const Icon = t.icon;
-            return (
-              <button key={t.key} onClick={() => { setTab(t.key); setMobileMenuOpen(false); }}
-                className={`flex flex-col items-center gap-0.5 px-1 py-2 text-xs border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
-                <Icon className="w-4 h-4" /> {t.label}
-              </button>
-            );
-          })}
-          <button onClick={() => setMobileMenuOpen((open) => !open)}
-            className={`flex flex-col items-center gap-0.5 px-1 py-2 text-xs border-b-2 ${['accounts', 'annual'].includes(tab) || mobileMenuOpen ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
-            <MoreHorizontal className="w-4 h-4" />更多
-          </button>
-          {mobileMenuOpen && (
-            <div className="absolute right-2 top-full mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-xl p-2 z-30">
-              <button onClick={() => { setTab('accounts'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><ListChecks className="w-4 h-4" />账户管理</button>
-              <button onClick={() => { setTab('annual'); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><BarChart3 className="w-4 h-4" />年度小结</button>
-              <div className="my-1 border-t border-slate-100" />
-              <button onClick={() => { exportData(); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Upload className="w-4 h-4" />导出数据</button>
-              <button onClick={() => { fileRef.current?.click(); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Download className="w-4 h-4" />导入数据</button>
-              <button onClick={() => { setPasswordOpen(true); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-slate-600 rounded-lg hover:bg-slate-50"><Lock className="w-4 h-4" />修改密码</button>
-              <button onClick={() => { setResetOpen(true); setMobileMenuOpen(false); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-rose-600 rounded-lg hover:bg-rose-50"><Power className="w-4 h-4" />重置数据</button>
-            </div>
-          )}
         </div>
       </header>
 
