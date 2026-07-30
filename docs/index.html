@@ -111,7 +111,7 @@ const { useState, useMemo, useRef, useEffect } = React;
 const {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, ComposedChart, Line,
-  Area, AreaChart, Legend, ReferenceLine
+  Area, AreaChart, Legend, ReferenceLine, LabelList
 } = Recharts;
 
 // ---------- 内联图标（替代 lucide-react，保证真机可靠渲染） ----------
@@ -2586,15 +2586,19 @@ function Annual({ annual }) {
         <div className="font-semibold mb-2">年度收入与支出（万元）</div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData}>
+            <BarChart data={chartData} margin={{ top: 20 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="period" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v) => v + '万'} />
               <Legend />
               <ReferenceLine y={0} stroke="#cbd5e1" />
-              <Bar dataKey="收入" fill="#10b981" radius={[3, 3, 0, 0]} />
-              <Bar dataKey="支出" fill="#f59e0b" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="收入" fill="#10b981" radius={[3, 3, 0, 0]}>
+                <LabelList position="top" formatter={(v) => `${v}万`} style={{ fontSize: 10, fill: '#047857' }} />
+              </Bar>
+              <Bar dataKey="支出" fill="#f59e0b" radius={[3, 3, 0, 0]}>
+                <LabelList position="top" formatter={(v) => `${v}万`} style={{ fontSize: 10, fill: '#b45309' }} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
