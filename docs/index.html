@@ -157,6 +157,22 @@ const wanSign = (v) => (v == null ? '-' : (v >= 0 ? '+' : '') + (v / 10000).toFi
 const pctSign = (v) => (v == null ? '-' : (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%');
 const fmtYuan = (v) => '¥' + Math.round(v).toLocaleString('zh-CN');
 const yuanSign = (v) => `${v >= 0 ? '+' : '-'}¥${Math.abs(Math.round(v)).toLocaleString('zh-CN')}`;
+const chartWan = (v) => `${Number(v).toFixed(1)}万`;
+
+function BarValueLabel({ x = 0, y = 0, width = 0, height = 0, value, color = '#475569', xOffset = 0 }) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  const labelX = x + width / 2 + xOffset;
+  const barTop = Math.min(y, y + height);
+  const barBottom = Math.max(y, y + height);
+  const labelY = amount >= 0 ? barTop - 5 : barBottom + 12;
+  return (
+    <text x={labelX} y={labelY} textAnchor="middle" fill={color} fontSize="10"
+      style={{ paintOrder: 'stroke', stroke: '#fff', strokeWidth: 3, strokeLinejoin: 'round', pointerEvents: 'none' }}>
+      {chartWan(amount)}
+    </text>
+  );
+}
 const isActive = (a) => a.active !== false;
 const getAssetCategory = (account) => ['cash', 'investment', 'fixed'].includes(account?.category) ? account.category : 'cash';
 
@@ -800,6 +816,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     攒的: +(s.saved / 10000).toFixed(1), 非收支变化: +(s.nonCashChange / 10000).toFixed(1),
     结余金额: s.saved, 非收支变化金额: s.nonCashChange, drivers: s.drivers,
   }));
+  const monthlyChartMinWidth = Math.max(640, chartData.length * 64);
   const assetTrend = chartData.map((s) => {
     const total = s.cash + s.invest + s.fixed;
     return {
@@ -1184,44 +1201,53 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           <MiniStat label="平均月结余" value={fmtWan(cashTotals.saved / cashMonthCount)} c={cashTotals.saved >= 0 ? 'text-indigo-600' : 'text-rose-600'} />
           <MiniStat label="区间储蓄率" value={periodSavingsRate == null ? '—' : (periodSavingsRate * 100).toFixed(1) + '%'} c={periodSavingsRate == null || periodSavingsRate >= 0 ? 'text-indigo-600' : 'text-rose-600'} />
         </div>
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={cashTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis yAxisId="amount" tick={{ fontSize: 11 }} width={38} />
-              <YAxis yAxisId="rate" orientation="right" tick={{ fontSize: 11 }} width={44} tickFormatter={(v) => (v * 100).toFixed(0) + '%'} />
-              <Tooltip content={<CashflowTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <ReferenceLine yAxisId="amount" y={0} stroke="#cbd5e1" />
-              <ReferenceLine yAxisId="rate" y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
-              <Bar yAxisId="amount" dataKey="结余" name="结余" radius={[3, 3, 0, 0]}>
-                {cashTrend.map((d, i) => <Cell key={i} fill={d.结余 >= 0 ? '#6366f1' : '#e11d48'} />)}
-              </Bar>
-              <Line yAxisId="amount" type="monotone" dataKey="收入" stroke="#10b981" strokeWidth={2} dot={false} />
-              <Line yAxisId="amount" type="monotone" dataKey="支出" stroke="#f59e0b" strokeWidth={2} dot={false} />
-              <Line yAxisId="rate" type="monotone" dataKey="储蓄率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
+        <div className="overflow-x-auto">
+          <div className="h-60" style={{ minWidth: `${monthlyChartMinWidth}px` }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={cashTrend} margin={{ top: 24, bottom: 18 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis yAxisId="amount" tick={{ fontSize: 11 }} width={38} />
+                <YAxis yAxisId="rate" orientation="right" tick={{ fontSize: 11 }} width={44} tickFormatter={(v) => (v * 100).toFixed(0) + '%'} />
+                <Tooltip content={<CashflowTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <ReferenceLine yAxisId="amount" y={0} stroke="#cbd5e1" />
+                <ReferenceLine yAxisId="rate" y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
+                <Bar yAxisId="amount" dataKey="结余" name="结余" radius={[3, 3, 0, 0]}>
+                  {cashTrend.map((d, i) => <Cell key={i} fill={d.结余 >= 0 ? '#6366f1' : '#e11d48'} />)}
+                  <LabelList dataKey="结余" content={<BarValueLabel color="#4338ca" />} />
+                </Bar>
+                <Line yAxisId="amount" type="monotone" dataKey="收入" stroke="#10b981" strokeWidth={2} dot={false} />
+                <Line yAxisId="amount" type="monotone" dataKey="支出" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                <Line yAxisId="rate" type="monotone" dataKey="储蓄率" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 4" dot={false} connectNulls={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
         <p className="text-xs text-slate-400 mt-1">结余柱使用左轴，紫色虚线储蓄率使用右轴；收入为 0 的月份不计算储蓄率。区间储蓄率按总结余 ÷ 总收入计算。</p>
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="font-semibold mb-2">净资产增长来源（万元）</div>
-        <div className="h-56">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={growthTrend} stackOffset="sign">
-              <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 11 }} width={38} />
-              <Tooltip content={<GrowthTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <ReferenceLine y={0} stroke="#94a3b8" />
-              <Bar dataKey="攒的" stackId="growth" fill="#10b981" radius={[2, 2, 0, 0]} />
-              <Bar dataKey="非收支变化" stackId="growth" fill="#f59e0b" radius={[2, 2, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="overflow-x-auto">
+          <div className="h-60" style={{ minWidth: `${monthlyChartMinWidth}px` }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={growthTrend} stackOffset="sign" margin={{ top: 24, bottom: 18 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
+                <XAxis dataKey="month" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 11 }} width={38} />
+                <Tooltip content={<GrowthTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <ReferenceLine y={0} stroke="#94a3b8" />
+                <Bar dataKey="攒的" stackId="growth" fill="#10b981" radius={[2, 2, 0, 0]}>
+                  <LabelList dataKey="攒的" content={<BarValueLabel color="#047857" xOffset={-16} />} />
+                </Bar>
+                <Bar dataKey="非收支变化" stackId="growth" fill="#f59e0b" radius={[2, 2, 0, 0]}>
+                  <LabelList dataKey="非收支变化" content={<BarValueLabel color="#b45309" xOffset={16} />} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </div>
         <p className="text-xs text-slate-400 mt-1 flex items-start gap-1"><Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />“非收支变化”由净资产变化减去当月结余反推，可能包含投资涨跌、房产估值、负债调整、账户增删或余额修正。</p>
         {latest.netChange != null && (
@@ -2539,9 +2565,9 @@ function Annual({ annual }) {
     period: a.periodShortLabel,
     收入: +(a.income / 10000).toFixed(1),
     支出: +(a.expenses / 10000).toFixed(1),
-    期末净资产: Math.round(a.netWorth / 10000),
-    攒的: Math.round(a.saved / 10000),
-    非收支变化: Math.round(a.nonCashChange / 10000),
+    期末净资产: +(a.netWorth / 10000).toFixed(1),
+    攒的: +(a.saved / 10000).toFixed(1),
+    非收支变化: +(a.nonCashChange / 10000).toFixed(1),
   }));
 
   const latestY = annual[annual.length - 1];
@@ -2594,10 +2620,10 @@ function Annual({ annual }) {
               <Legend />
               <ReferenceLine y={0} stroke="#cbd5e1" />
               <Bar dataKey="收入" fill="#10b981" radius={[3, 3, 0, 0]}>
-                <LabelList position="top" formatter={(v) => `${v}万`} style={{ fontSize: 10, fill: '#047857' }} />
+                <LabelList dataKey="收入" content={<BarValueLabel color="#047857" />} />
               </Bar>
               <Bar dataKey="支出" fill="#f59e0b" radius={[3, 3, 0, 0]}>
-                <LabelList position="top" formatter={(v) => `${v}万`} style={{ fontSize: 10, fill: '#b45309' }} />
+                <LabelList dataKey="支出" content={<BarValueLabel color="#b45309" />} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -2608,12 +2634,14 @@ function Annual({ annual }) {
         <div className="font-semibold mb-2">期末净资产（万元）</div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData}>
+            <ComposedChart data={chartData} margin={{ top: 24, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="period" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v) => v + '万'} />
-              <Bar dataKey="期末净资产" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="期末净资产" fill="#6366f1" radius={[4, 4, 0, 0]}>
+                <LabelList dataKey="期末净资产" content={<BarValueLabel color="#4338ca" />} />
+              </Bar>
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -2623,15 +2651,19 @@ function Annual({ annual }) {
         <div className="font-semibold mb-2">增长来源：攒的 vs 非收支变化（万元）</div>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} stackOffset="sign">
+            <BarChart data={chartData} stackOffset="sign" margin={{ top: 24, bottom: 18 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
               <XAxis dataKey="period" tick={{ fontSize: 11 }} />
               <YAxis tick={{ fontSize: 11 }} />
               <Tooltip formatter={(v) => v + '万'} />
               <Legend />
               <ReferenceLine y={0} stroke="#cbd5e1" />
-              <Bar dataKey="攒的" stackId="g" fill="#10b981" radius={[2, 2, 0, 0]} />
-              <Bar dataKey="非收支变化" stackId="g" fill="#f59e0b" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="攒的" stackId="g" fill="#10b981" radius={[2, 2, 0, 0]}>
+                <LabelList dataKey="攒的" content={<BarValueLabel color="#047857" xOffset={-16} />} />
+              </Bar>
+              <Bar dataKey="非收支变化" stackId="g" fill="#f59e0b" radius={[2, 2, 0, 0]}>
+                <LabelList dataKey="非收支变化" content={<BarValueLabel color="#b45309" xOffset={16} />} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>
