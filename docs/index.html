@@ -712,6 +712,7 @@ function FamilyFinance({ onChangePassword }) {
             </div>
           </div>
         )}
+        {(tab === 'accounts' || tab === 'closing') && <OperationPageHeader tab={tab} setTab={setTab} />}
         {tab === 'overview' && (
           <Overview latest={latest} chartData={chartData} series={series} fire={fire} cashflow={cashflow}
             withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
@@ -782,6 +783,31 @@ function FamilyFinance({ onChangePassword }) {
         if (ok) setPasswordOpen(false);
         return ok;
       }} onClose={() => setPasswordOpen(false)} />}
+    </div>
+  );
+}
+
+function OperationPageHeader({ tab, setTab }) {
+  const isClosing = tab === 'closing';
+  const Icon = isClosing ? CalendarClock : ListChecks;
+  const title = isClosing ? '月度结账' : '账户管理';
+  const description = isClosing
+    ? '按月份核对资产、负债、收入和支出，完成结账后再进入下一个月份。'
+    : '管理家庭的资产、负债、收入和支出账户，账户设置会影响后续月度记录。';
+  return (
+    <div className="bg-white rounded-xl p-4 border border-slate-200 mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div className="shrink-0 rounded-lg bg-indigo-50 p-2 text-indigo-600"><Icon className="w-5 h-5" /></div>
+          <div className="min-w-0">
+            <h2 className="font-semibold text-slate-800">{title}</h2>
+            <p className="text-xs text-slate-500 mt-1">{description}</p>
+          </div>
+        </div>
+        <button onClick={() => setTab('overview')} className="self-start sm:self-auto shrink-0 flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+          <Home className="w-4 h-4" />返回总览
+        </button>
+      </div>
     </div>
   );
 }
