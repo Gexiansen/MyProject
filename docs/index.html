@@ -219,6 +219,60 @@ function actionMetricChange(metric, before, after) {
   return null;
 }
 
+function useDialogA11y(open, onClose) {
+  const dialogRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+
+  useEffect(() => {
+    if (!open || !dialogRef.current) return undefined;
+    const dialog = dialogRef.current;
+    const previousFocus = document.activeElement;
+    const getFocusable = () => Array.from(dialog.querySelectorAll(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'
+    )).filter((element) => element.offsetParent !== null || element === document.activeElement);
+    const focusInitial = () => {
+      const target = dialog.querySelector('[data-dialog-autofocus]') || getFocusable()[0] || dialog;
+      target.focus({ preventScroll: true });
+    };
+    const frame = requestAnimationFrame(focusInitial);
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeRef.current?.();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = getFocusable();
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus({ preventScroll: true });
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus({ preventScroll: true });
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
+    };
+    dialog.addEventListener('keydown', handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      dialog.removeEventListener('keydown', handleKeyDown);
+      if (previousFocus && previousFocus !== document.body && previousFocus.isConnected) {
+        requestAnimationFrame(() => previousFocus.focus({ preventScroll: true }));
+      }
+    };
+  }, [open]);
+
+  return dialogRef;
+}
+
 // ---------- 本地存储：自动保存 / 读取 ----------
 const STORAGE_KEY = 'family-finance-v1';
 const PASSWORD_KEY = 'family-finance-password';
@@ -388,6 +442,14 @@ function FamilyFinance({ onChangePassword }) {
   const [moreMenuOpen, setMoreMenuOpen] = useState(false);
   const fileRef = useRef(null);
   const moreMenuRef = useRef(null);
+  const moreButtonRef = useRef(null);
+  const restoreMoreFocusRef = useRef(true);
+  const closePassword = () => {
+    setPasswordOpen(false);
+    requestAnimationFrame(() => moreButtonRef.current?.focus({ preventScroll: true }));
+  };
+  const resetDialogRef = useDialogA11y(resetOpen, () => setResetOpen(false));
+  const importDialogRef = useDialogA11y(Boolean(importPreview), () => setImportPreview(null));
 
   useEffect(() => {
     try {
@@ -403,19 +465,53 @@ function FamilyFinance({ onChangePassword }) {
   useEffect(() => {
     if (!moreMenuOpen) return;
     const closeOnOutsidePointer = (event) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target)) setMoreMenuOpen(false);
+      if (moreMenuRef.current && !moreMenuRef.current.contains(event.target)) {
+        restoreMoreFocusRef.current = false;
+        setMoreMenuOpen(false);
+      }
     };
     document.addEventListener('pointerdown', closeOnOutsidePointer);
     return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
   }, [moreMenuOpen]);
 
   useEffect(() => {
-    const closeMenuOnEscape = (event) => {
-      if (event.key === 'Escape') setMoreMenuOpen(false);
+    if (!moreMenuOpen) return undefined;
+    const menu = moreMenuRef.current?.querySelector('[role="menu"]');
+    if (!menu) return undefined;
+    restoreMoreFocusRef.current = true;
+    const getItems = () => Array.from(menu.querySelectorAll('[role="menuitem"]'));
+    const frame = requestAnimationFrame(() => getItems()[0]?.focus({ preventScroll: true }));
+    const moveFocus = (event) => {
+      const items = getItems();
+      const currentIndex = items.indexOf(document.activeElement);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setMoreMenuOpen(false);
+        return;
+      }
+      if (event.key === 'Tab') {
+        restoreMoreFocusRef.current = false;
+        setMoreMenuOpen(false);
+        return;
+      }
+      if (!items.length || !['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const nextIndex = event.key === 'Home' ? 0
+        : event.key === 'End' ? items.length - 1
+          : (currentIndex + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items[nextIndex]?.focus({ preventScroll: true });
     };
-    document.addEventListener('keydown', closeMenuOnEscape);
-    return () => document.removeEventListener('keydown', closeMenuOnEscape);
-  }, []);
+    menu.addEventListener('keydown', moveFocus);
+    return () => {
+      cancelAnimationFrame(frame);
+      menu.removeEventListener('keydown', moveFocus);
+      if (restoreMoreFocusRef.current && (menu.contains(document.activeElement) || document.activeElement === document.body)) {
+        requestAnimationFrame(() => moreButtonRef.current?.focus({ preventScroll: true }));
+      }
+    };
+  }, [moreMenuOpen]);
 
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
@@ -671,12 +767,12 @@ function FamilyFinance({ onChangePassword }) {
             </div>
           </div>
           <div ref={moreMenuRef} className="relative ml-auto">
-            <button onClick={() => setMoreMenuOpen((open) => !open)} aria-label="更多" title="更多" aria-expanded={moreMenuOpen} aria-haspopup="menu"
-              className={`flex items-center justify-center text-base leading-none tracking-[0.2em] px-2.5 py-2 rounded-lg ${tab === 'accounts' || tab === 'closing' || moreMenuOpen ? 'bg-indigo-50 text-indigo-600 font-medium' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+            <button ref={moreButtonRef} onClick={() => setMoreMenuOpen((open) => !open)} aria-label="更多" title="更多" aria-expanded={moreMenuOpen} aria-haspopup="menu" aria-controls="more-menu"
+              className={`min-w-10 min-h-10 flex items-center justify-center text-base leading-none tracking-[0.2em] px-2.5 py-2 rounded-lg ${tab === 'accounts' || tab === 'closing' || moreMenuOpen ? 'bg-indigo-50 text-indigo-600 font-medium' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
               ...
             </button>
             {moreMenuOpen && (
-              <div role="menu" className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl p-2 z-30">
+              <div id="more-menu" role="menu" aria-label="更多操作" className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-xl p-2 z-30">
                 <button role="menuitem" onClick={() => { setTab('accounts'); setMoreMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg ${tab === 'accounts' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}><ListChecks className="w-4 h-4" />账户管理</button>
                 <button role="menuitem" onClick={() => { setTab('closing'); setMoreMenuOpen(false); }} className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg ${tab === 'closing' ? 'bg-indigo-50 text-indigo-600 font-medium' : 'text-slate-600 hover:bg-slate-50'}`}><CalendarClock className="w-4 h-4" />月度结账</button>
                 <div className="my-1 border-t border-slate-100" />
@@ -707,7 +803,7 @@ function FamilyFinance({ onChangePassword }) {
           <div role={importResult.type === 'error' ? 'alert' : 'status'}
             className={`mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${importResult.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
             <span className="flex-1">{importResult.message}</span>
-            <button onClick={() => setImportResult(null)} aria-label="关闭导入结果"><X className="w-4 h-4" /></button>
+            <button onClick={() => setImportResult(null)} aria-label="关闭导入结果" className="min-w-10 min-h-10 -my-1 -mr-1 inline-flex items-center justify-center rounded-lg hover:bg-emerald-100"><X className="w-4 h-4" /></button>
           </div>
         )}
         {isDemoData && (
@@ -748,7 +844,7 @@ function FamilyFinance({ onChangePassword }) {
 
       {resetOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="reset-data-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={resetDialogRef} role="dialog" aria-modal="true" aria-labelledby="reset-data-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
               <h3 id="reset-data-title" className="font-semibold">重置数据</h3>
@@ -757,20 +853,20 @@ function FamilyFinance({ onChangePassword }) {
             <div className="space-y-2">
               <button onClick={restoreDemo} className="w-full text-sm bg-slate-100 hover:bg-slate-200 rounded-lg py-2.5">恢复为演示数据</button>
               <button onClick={clearAll} className="w-full text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg py-2.5">清空全部，从零开始</button>
-              <button onClick={() => setResetOpen(false)} className="w-full text-sm text-slate-500 hover:bg-slate-100 rounded-lg py-2.5">取消</button>
+              <button data-dialog-autofocus onClick={() => setResetOpen(false)} className="w-full text-sm text-slate-500 hover:bg-slate-100 rounded-lg py-2.5">取消</button>
             </div>
           </div>
         </div>
       )}
       {importPreview && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="import-preview-title" className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl">
+          <div ref={importDialogRef} role="dialog" aria-modal="true" aria-labelledby="import-preview-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
                 <h3 id="import-preview-title" className="font-semibold">确认导入数据</h3>
                 <p className="text-xs text-slate-400 mt-1 break-all">{importPreview.fileName}</p>
               </div>
-              <button onClick={() => setImportPreview(null)} aria-label="关闭导入确认"><X className="w-5 h-5 text-slate-400" /></button>
+              <button onClick={() => setImportPreview(null)} aria-label="关闭导入确认" className="min-w-10 min-h-10 -my-1 -mr-1 inline-flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center mb-3">
               <MiniStat label="账户" value={`${importPreview.summary.accountCount} 个`} c="text-indigo-600" />
@@ -784,7 +880,7 @@ function FamilyFinance({ onChangePassword }) {
             </div>
             <p className="text-sm text-rose-700 bg-rose-50 rounded-lg p-3 mt-3">确认后将覆盖当前浏览器中的账户、月度记录、目标和相关设置。此操作无法直接撤销。</p>
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-4">
-              <button onClick={() => setImportPreview(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+              <button data-dialog-autofocus onClick={() => setImportPreview(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
               <button onClick={exportData} className="px-4 py-2 text-sm border border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg">先导出当前数据</button>
               <button onClick={confirmImport} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认覆盖并导入</button>
             </div>
@@ -798,7 +894,7 @@ function FamilyFinance({ onChangePassword }) {
           setImportResult({ type: 'success', message: '密码已更新，刷新页面后请使用新密码解锁。' });
         }
         return ok;
-      }} onClose={() => setPasswordOpen(false)} />}
+      }} onClose={closePassword} />}
     </div>
   );
 }
@@ -1580,9 +1676,9 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
                     <div className="text-xs text-slate-400">{a.member}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setModal(a)} className="text-slate-400 hover:text-indigo-600" title="编辑" aria-label={`编辑 ${a.name}`}><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="text-emerald-500 hover:text-emerald-600" title="停用" aria-label={`停用 ${a.name}`}><Power className="w-4 h-4" /></button>
-                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setModal(a)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-600" title="编辑" aria-label={`编辑 ${a.name}`}><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-emerald-500 hover:bg-emerald-50 hover:text-emerald-600" title="停用" aria-label={`停用 ${a.name}`}><Power className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}
@@ -1612,7 +1708,7 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setActiveState(a.id, true)} className="text-xs text-indigo-600 hover:underline">重新启用</button>
-                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}
@@ -1636,6 +1732,7 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
 
 function ConfirmModal({ confirm, records, latest, onCancel, onDeactivate, onDelete }) {
   const { mode, account } = confirm;
+  const dialogRef = useDialogA11y(true, onCancel);
   const id = account.id;
   const monthsWithRecord = Object.keys(records).filter((m) => Object.prototype.hasOwnProperty.call(records[m] || {}, id));
   const nonZeroMonthCount = monthsWithRecord.filter((m) => Number(records[m]?.[id]) || 0).length;
@@ -1644,7 +1741,7 @@ function ConfirmModal({ confirm, records, latest, onCancel, onDeactivate, onDele
   const isDeactivate = mode === 'deactivate';
   return (
     <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="account-confirm-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="account-confirm-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
         <div className="flex items-center gap-2 mb-2">
           {isDeactivate
             ? <Power className="w-5 h-5 text-emerald-600" />
@@ -1671,7 +1768,7 @@ function ConfirmModal({ confirm, records, latest, onCancel, onDeactivate, onDele
           </div>
         )}
         <div className="flex gap-2 justify-end">
-          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+          <button data-dialog-autofocus onClick={onCancel} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
           {isDeactivate ? (
             <button onClick={onDeactivate} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">确认停用</button>
           ) : (
@@ -1695,6 +1792,8 @@ function MiniStat({ label, value, c }) {
 function AccountModal({ account, onSave, onClose, historyMonthCount }) {
   const [form, setForm] = useState({ ...account });
   const [pendingSave, setPendingSave] = useState(null);
+  const dialogRef = useDialogA11y(true, onClose);
+  const historyDialogRef = useDialogA11y(Boolean(pendingSave), () => setPendingSave(null));
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
   const submit = () => {
     if (!form.name.trim()) return;
@@ -1712,11 +1811,11 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
   const categoryChanged = pendingSave && account.type === 'asset' && pendingSave.type === 'asset'
     && getAssetCategory(account) !== getAssetCategory(pendingSave);
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="account-modal-title" className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="account-modal-title" tabIndex="-1" className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h3 id="account-modal-title" className="font-semibold">{account.id ? '编辑账户' : '新增账户'}</h3>
-          <button onClick={onClose} aria-label="关闭账户编辑"><X className="w-5 h-5 text-slate-400" /></button>
+          <button onClick={onClose} aria-label="关闭账户编辑" className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
         </div>
         <div className="space-y-3">
           <Field label="名称">
@@ -1773,7 +1872,7 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
       </div>
       {pendingSave && (
         <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="account-history-change-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={historyDialogRef} role="dialog" aria-modal="true" aria-labelledby="account-history-change-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
               <h3 id="account-history-change-title" className="font-semibold">确认调整历史归类</h3>
@@ -1785,7 +1884,7 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
             </ul>
             <p className="text-xs text-slate-400 mt-2">账户名称和各月金额不会改变，但历史图表及相关汇总可能随归类变化。</p>
             <div className="flex gap-2 justify-end mt-4">
-              <button onClick={() => setPendingSave(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">返回修改</button>
+              <button data-dialog-autofocus onClick={() => setPendingSave(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">返回修改</button>
               <button onClick={() => onSave(pendingSave)} className="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg">确认并保存</button>
             </div>
           </div>
@@ -1817,6 +1916,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const [copyStatus, setCopyStatus] = useState('');
   const [activeMember, setActiveMember] = useState('老公');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const deleteMonthDialogRef = useDialogA11y(Boolean(deleteMonth), () => setDeleteMonth(null));
+  const deleteActionDialogRef = useDialogA11y(Boolean(deleteAction), () => setDeleteAction(null));
+  const reopenDialogRef = useDialogA11y(reopenCheckOpen, () => setReopenCheckOpen(false));
+  const closeCheckDialogRef = useDialogA11y(closeCheckOpen, () => setCloseCheckOpen(false));
   const now = new Date();
   const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const [newMonth, setNewMonth] = useState(() => months.length ? nextMonth(months[months.length - 1]) : currentMonth);
@@ -2309,7 +2412,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 <div key={action.id} className="flex items-start gap-2 text-sm text-slate-600">
                   <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(sel, action.id)} className="mt-0.5 accent-indigo-600" />
                   <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}{action.metric && action.metric !== 'none' ? <span className="block text-xs text-slate-400 mt-0.5">观察：{ACTION_METRICS[action.metric]}</span> : null}</span>
-                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动" aria-label={`删除行动 ${action.text}`}><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-300 hover:bg-rose-50 hover:text-rose-500" title="删除行动" aria-label={`删除行动 ${action.text}`}><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>}
@@ -2349,7 +2452,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                   <td className="px-3 py-2 text-right text-emerald-600">{wanSign(s.saved)}</td>
                   <td className={`px-3 py-2 text-right ${(s.nonCashChange || 0) >= 0 ? 'text-amber-600' : 'text-rose-500'}`}>{s.netChange == null ? '-' : wanSign(s.nonCashChange)}</td>
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => setDeleteMonth(s.month)} className="text-slate-300 hover:text-rose-500" title={`删除 ${s.month}`} aria-label={`删除 ${s.month}`}><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setDeleteMonth(s.month)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-300 hover:bg-rose-50 hover:text-rose-500" title={`删除 ${s.month}`} aria-label={`删除 ${s.month}`}><Trash2 className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
@@ -2359,7 +2462,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       </div>
       {deleteMonth && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="delete-month-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={deleteMonthDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-month-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-rose-600" />
               <h3 id="delete-month-title" className="font-semibold">删除月度记录</h3>
@@ -2367,7 +2470,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             <p className="text-sm text-slate-600 mb-2">确定删除 <span className="font-medium">{deleteMonth}</span> 的全部结账数据吗？</p>
             <p className="text-xs text-rose-600 bg-rose-50 rounded-lg p-2.5 mb-4">删除后，该月份将从净资产趋势、年度统计和历史记录中移除，且无法恢复。</p>
             <div className="flex gap-2 justify-end">
-              <button onClick={() => setDeleteMonth(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+              <button data-dialog-autofocus onClick={() => setDeleteMonth(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
               <button onClick={() => delMonth(deleteMonth)} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
             </div>
           </div>
@@ -2375,25 +2478,25 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       )}
       {deleteAction && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="delete-action-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={deleteActionDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-action-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 id="delete-action-title" className="font-semibold">删除行动项</h3></div>
             <p className="text-sm text-slate-600 mb-4">删除后，该行动不会在下个月结账时出现。</p>
-            <div className="flex gap-2 justify-end"><button onClick={() => setDeleteAction(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={confirmDeleteAction} className="px-4 py-2 text-sm bg-rose-600 text-white rounded-lg">确认删除</button></div>
+            <div className="flex gap-2 justify-end"><button data-dialog-autofocus onClick={() => setDeleteAction(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={confirmDeleteAction} className="px-4 py-2 text-sm bg-rose-600 text-white rounded-lg">确认删除</button></div>
           </div>
         </div>
       )}
       {reopenCheckOpen && sel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="reopen-month-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={reopenDialogRef} role="dialog" aria-modal="true" aria-labelledby="reopen-month-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-amber-600" /><h3 id="reopen-month-title" className="font-semibold">重新编辑 {sel}？</h3></div>
             <p className="text-sm text-slate-600 mb-4">重新编辑会打开本月金额并将结账状态改回「录入中」，已保存的简报、行动和目标快照会保留；修改完成后请再次结账。</p>
-            <div className="flex gap-2 justify-end"><button onClick={() => setReopenCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={reopenMonth} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg">确认重新编辑</button></div>
+            <div className="flex gap-2 justify-end"><button data-dialog-autofocus onClick={() => setReopenCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={reopenMonth} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg">确认重新编辑</button></div>
           </div>
         </div>
       )}
       {closeCheckOpen && sel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="close-check-title" className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
+          <div ref={closeCheckDialogRef} role="dialog" aria-modal="true" aria-labelledby="close-check-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className={`w-5 h-5 ${closeBlockers.length ? 'text-rose-600' : 'text-amber-600'}`} />
               <h3 id="close-check-title" className="font-semibold">结账检查 · {sel}</h3>
@@ -2453,6 +2556,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
   const [error, setError] = useState('');
   const [deleteId, setDeleteId] = useState(null);
   const [formOpen, setFormOpen] = useState(goals.length === 0);
+  const deleteGoalDialogRef = useDialogA11y(Boolean(deleteId), () => setDeleteId(null));
   const now = new Date();
   const currentMonthIndex = now.getFullYear() * 12 + now.getMonth();
   const priorityLabel = { high: '优先', medium: '正常', low: '以后' };
@@ -2648,8 +2752,8 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
                   <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span>{isEmergency && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-600">应急资金</span>}</div>
                   <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}{linkedAccountIds.length > 0 ? ` · 自动汇总 ${linkedAccountIds.length} 个账户` : ' · 手动金额'}</p>
                 </div>
-                <button onClick={() => editGoal(goal)} className="text-slate-400 hover:text-indigo-600" title={`编辑 ${goal.name}`} aria-label={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
-                <button onClick={() => setDeleteId(goal.id)} className="text-slate-400 hover:text-rose-600" title={`删除 ${goal.name}`} aria-label={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
+                <button onClick={() => editGoal(goal)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-600" title={`编辑 ${goal.name}`} aria-label={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => setDeleteId(goal.id)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" title={`删除 ${goal.name}`} aria-label={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
               </div>
               <div className="flex justify-between text-sm mt-3"><span className="text-slate-500">{fmtWan(currentAmount)} / {fmtWan(targetAmount)}</span><span className="font-medium text-indigo-600">{(progress * 100).toFixed(1)}%</span></div>
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
@@ -2684,10 +2788,10 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
 
       {deleteId && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div role="dialog" aria-modal="true" aria-labelledby="delete-goal-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={deleteGoalDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-goal-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 id="delete-goal-title" className="font-semibold">删除家庭目标</h3></div>
             <p className="text-sm text-slate-600 mb-4">删除后无法恢复，但不会影响账户和月度数据。</p>
-            <div className="flex gap-2"><button onClick={confirmDelete} className="flex-1 bg-rose-600 text-white rounded-lg py-2 text-sm">确认删除</button><button onClick={() => setDeleteId(null)} className="flex-1 bg-slate-100 rounded-lg py-2 text-sm">取消</button></div>
+            <div className="flex gap-2"><button onClick={confirmDelete} className="flex-1 bg-rose-600 text-white rounded-lg py-2 text-sm">确认删除</button><button data-dialog-autofocus onClick={() => setDeleteId(null)} className="flex-1 bg-slate-100 rounded-lg py-2 text-sm">取消</button></div>
           </div>
         </div>
       )}
@@ -2928,6 +3032,7 @@ function PasswordModal({ onSave, onClose }) {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
+  const dialogRef = useDialogA11y(true, onClose);
   const clean = (v) => v.replace(/\D/g, '').slice(0, 6);
   const submit = () => {
     if (!/^\d{6}$/.test(oldPassword) || !/^\d{6}$/.test(newPassword)) { setError('密码必须是6位数字'); return; }
@@ -2936,10 +3041,10 @@ function PasswordModal({ onSave, onClose }) {
   };
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div role="dialog" aria-modal="true" aria-labelledby="password-modal-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="password-modal-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
         <div className="flex items-center justify-between mb-4">
           <h3 id="password-modal-title" className="font-semibold flex items-center gap-2"><Lock className="w-5 h-5 text-indigo-600" />修改密码</h3>
-          <button onClick={onClose} aria-label="关闭修改密码"><X className="w-5 h-5 text-slate-400" /></button>
+          <button onClick={onClose} aria-label="关闭修改密码" className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
         </div>
         <div className="space-y-3">
           <Field label="原密码"><input type="password" inputMode="numeric" maxLength="6" value={oldPassword} onChange={(e) => { setOldPassword(clean(e.target.value)); setError(''); }} className="w-full border border-slate-200 rounded-lg px-3 py-2" /></Field>
