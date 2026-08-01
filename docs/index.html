@@ -409,6 +409,14 @@ function FamilyFinance({ onChangePassword }) {
     return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
   }, [moreMenuOpen]);
 
+  useEffect(() => {
+    const closeMenuOnEscape = (event) => {
+      if (event.key === 'Escape') setMoreMenuOpen(false);
+    };
+    document.addEventListener('keydown', closeMenuOnEscape);
+    return () => document.removeEventListener('keydown', closeMenuOnEscape);
+  }, []);
+
   const series = useMemo(() => {
     const sorted = Object.keys(records).sort();
     const out = [];
@@ -540,6 +548,8 @@ function FamilyFinance({ onChangePassword }) {
     : '尚未建立月度记录';
   const currentDate = new Date();
   const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
+  const dataLagMonths = latest ? Math.max(0, (monthIndexFromKey(currentMonth) ?? 0) - (monthIndexFromKey(latest.month) ?? 0)) : null;
+  const dataIsStale = dataLagMonths != null && dataLagMonths >= 2;
   const monthlyAction = !latest
     ? accounts.length > 0 ? { title: '建立首个月份', detail: '账户已经准备好，可以开始录入第一个月度数据。', button: '开始月度结账' } : null
     : monthStatus[latest.month] !== 'closed'
@@ -554,10 +564,12 @@ function FamilyFinance({ onChangePassword }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `family-finance-${new Date().toISOString().slice(0, 10)}.json`;
+    const fileName = `family-finance-${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
     setLastExportAt(exportedAt);
+    setImportResult({ type: 'success', message: `数据已导出：${fileName}` });
   };
   const prepareImport = (e) => {
     const f = e.target.files?.[0];
@@ -713,6 +725,7 @@ function FamilyFinance({ onChangePassword }) {
           </div>
         )}
         {(tab === 'accounts' || tab === 'closing') && <OperationPageHeader tab={tab} setTab={setTab} />}
+        {dataIsStale && (tab === 'overview' || tab === 'goals') && <DataStaleNotice latestMonth={latest.month} lagMonths={dataLagMonths} setTab={setTab} />}
         {tab === 'overview' && (
           <Overview latest={latest} chartData={chartData} series={series} fire={fire} cashflow={cashflow}
             withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
@@ -735,10 +748,10 @@ function FamilyFinance({ onChangePassword }) {
 
       {resetOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="reset-data-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
-              <h3 className="font-semibold">重置数据</h3>
+              <h3 id="reset-data-title" className="font-semibold">重置数据</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">这两个操作都会覆盖当前本机数据。执行前建议先「导出」备份一份 JSON。</p>
             <div className="space-y-2">
@@ -780,7 +793,10 @@ function FamilyFinance({ onChangePassword }) {
       )}
       {passwordOpen && <PasswordModal onSave={(oldPassword, newPassword) => {
         const ok = onChangePassword(oldPassword, newPassword);
-        if (ok) setPasswordOpen(false);
+        if (ok) {
+          setPasswordOpen(false);
+          setImportResult({ type: 'success', message: '密码已更新，刷新页面后请使用新密码解锁。' });
+        }
         return ok;
       }} onClose={() => setPasswordOpen(false)} />}
     </div>
@@ -807,6 +823,23 @@ function OperationPageHeader({ tab, setTab }) {
         <button onClick={() => setTab('overview')} className="self-start sm:self-auto shrink-0 flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
           <Home className="w-4 h-4" />返回总览
         </button>
+      </div>
+    </div>
+  );
+}
+
+function DataStaleNotice({ latestMonth, lagMonths, setTab }) {
+  return (
+    <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-start gap-2 flex-1">
+          <CalendarClock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <div className="text-sm font-semibold text-amber-800">数据已滞后 {lagMonths} 个月</div>
+            <p className="text-xs text-amber-700 mt-1">当前总览和家庭目标仍基于 {latestMonth} 的记录，建议先完成最新月份的月度结账，再判断当前资金压力。</p>
+          </div>
+        </div>
+        <button onClick={() => setTab('closing')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700">去更新数据</button>
       </div>
     </div>
   );
@@ -1547,9 +1580,9 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
                     <div className="text-xs text-slate-400">{a.member}</div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setModal(a)} className="text-slate-400 hover:text-indigo-600" title="编辑"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="text-emerald-500 hover:text-emerald-600" title="停用"><Power className="w-4 h-4" /></button>
-                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setModal(a)} className="text-slate-400 hover:text-indigo-600" title="编辑" aria-label={`编辑 ${a.name}`}><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="text-emerald-500 hover:text-emerald-600" title="停用" aria-label={`停用 ${a.name}`}><Power className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}
@@ -1579,11 +1612,11 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
                   </div>
                   <div className="flex items-center gap-2">
                     <button onClick={() => setActiveState(a.id, true)} className="text-xs text-indigo-600 hover:underline">重新启用</button>
-                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="text-slate-400 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
               ))}
-              <p className="text-xs text-slate-400 pt-2">停用账户的历史数据仍完整参与净资产与年度小结计算，只是不出现在结账录入和当前余额中。</p>
+              <p className="text-xs text-slate-400 pt-2">停用账户的历史数据仍完整参与净资产与年度小结计算；停用后不再出现在后续月份的结账录入中，完成下一次结账后最新数据会按启用账户统计。</p>
             </div>
           )}
         </div>
@@ -1604,25 +1637,25 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
 function ConfirmModal({ confirm, records, latest, onCancel, onDeactivate, onDelete }) {
   const { mode, account } = confirm;
   const id = account.id;
-  let monthCount = 0;
-  Object.keys(records).forEach((m) => { if ((Number(records[m][id]) || 0) !== 0) monthCount++; });
+  const monthsWithRecord = Object.keys(records).filter((m) => Object.prototype.hasOwnProperty.call(records[m] || {}, id));
+  const nonZeroMonthCount = monthsWithRecord.filter((m) => Number(records[m]?.[id]) || 0).length;
   const curVal = (records[latest?.month] || {})[id];
 
   const isDeactivate = mode === 'deactivate';
   return (
     <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+      <div role="dialog" aria-modal="true" aria-labelledby="account-confirm-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
         <div className="flex items-center gap-2 mb-2">
           {isDeactivate
             ? <Power className="w-5 h-5 text-emerald-600" />
             : <AlertTriangle className="w-5 h-5 text-rose-600" />}
-          <h3 className="font-semibold">{isDeactivate ? '停用账户' : '删除账户'}</h3>
+          <h3 id="account-confirm-title" className="font-semibold">{isDeactivate ? '停用账户' : '删除账户'}</h3>
         </div>
         {isDeactivate ? (
           <div className="text-sm text-slate-600 space-y-2 mb-4">
             <p>确定停用「<span className="font-medium">{account.name}</span>」吗？</p>
             <p className="bg-emerald-50 text-emerald-700 rounded-lg p-2.5 text-xs">
-              历史数据将<b>完整保留</b>，过往月份的净资产、年度小结、趋势图均<b>不受影响</b>。停用后它不再出现在月度结账录入和当前余额里，<b>可随时重新启用</b>。
+              历史数据将<b>完整保留</b>，过往月份的净资产、年度小结、趋势图均<b>不受影响</b>。停用后它不再出现在后续月份的月度结账录入中，完成下一次结账后最新数据会按启用账户统计，且<b>可随时重新启用</b>。
             </p>
             {curVal != null && curVal !== 0 && (
               <p className="text-xs text-amber-600">提示：该账户当月余额为 {fmtYuan(curVal)}，停用前请确认是否已清零/转出。</p>
@@ -1632,7 +1665,7 @@ function ConfirmModal({ confirm, records, latest, onCancel, onDeactivate, onDele
           <div className="text-sm text-slate-600 space-y-2 mb-4">
             <p>确定删除「<span className="font-medium">{account.name}</span>」吗？</p>
             <p className="bg-rose-50 text-rose-700 rounded-lg p-2.5 text-xs">
-              该账户目前涉及 <b>{monthCount}</b> 个月的记录，删除会<b>清空它在所有月份的历史数据</b>，过往的总资产、净资产、趋势线与年度小结都会随之改变，且<b>无法恢复</b>。
+              该账户目前涉及 <b>{monthsWithRecord.length}</b> 个月的记录{nonZeroMonthCount > 0 ? `，其中 ${nonZeroMonthCount} 个月金额非零` : ''}；删除会<b>清空它在所有月份的历史数据</b>，过往的总资产、净资产、趋势线与年度小结都会随之改变，且<b>无法恢复</b>。
             </p>
             <p className="text-xs text-slate-400">若只是「现在没有了」但想保留历史，建议改用「停用」。</p>
           </div>
@@ -1679,11 +1712,11 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
   const categoryChanged = pendingSave && account.type === 'asset' && pendingSave.type === 'asset'
     && getAssetCategory(account) !== getAssetCategory(pendingSave);
   return (
-    <div className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div role="dialog" aria-modal="true" aria-labelledby="account-modal-title" className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-white w-full sm:max-w-sm rounded-t-2xl sm:rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">{account.id ? '编辑账户' : '新增账户'}</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
+          <h3 id="account-modal-title" className="font-semibold">{account.id ? '编辑账户' : '新增账户'}</h3>
+          <button onClick={onClose} aria-label="关闭账户编辑"><X className="w-5 h-5 text-slate-400" /></button>
         </div>
         <div className="space-y-3">
           <Field label="名称">
@@ -1777,6 +1810,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const [sel, setSel] = useState(months[months.length - 1]);
   const [deleteMonth, setDeleteMonth] = useState(null);
   const [closeCheckOpen, setCloseCheckOpen] = useState(false);
+  const [reopenCheckOpen, setReopenCheckOpen] = useState(false);
   const [actionDraft, setActionDraft] = useState('');
   const [actionMetric, setActionMetric] = useState('none');
   const [deleteAction, setDeleteAction] = useState(null);
@@ -1992,6 +2026,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const reopenMonth = () => {
     setMonthStatus((prev) => ({ ...prev, [sel]: 'draft' }));
     setMonthMeta((prev) => ({ ...prev, [sel]: { ...(prev[sel] || {}), reopenedAt: new Date().toISOString() } }));
+    setReopenCheckOpen(false);
   };
   const updateActions = (month, updater) => setMonthMeta((prev) => {
     const meta = prev[month] || {};
@@ -2124,8 +2159,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           {isClosed && (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
               <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
-              <p className="text-sm text-emerald-800 flex-1">该月份已结账，数据已锁定，避免后续误改。</p>
-              <button onClick={reopenMonth} className="text-sm px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg whitespace-nowrap">重新编辑</button>
+              <p className="text-sm text-emerald-800 flex-1">本月金额和结账结果已锁定；行动复盘仍可更新。</p>
+              <button onClick={() => setReopenCheckOpen(true)} className="text-sm px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg whitespace-nowrap">重新编辑</button>
             </div>
           )}
 
@@ -2196,7 +2231,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           })}
 
           <p className="text-xs text-slate-400 bg-white rounded-lg px-3 py-2 border border-slate-200">
-            {isClosed ? '该月份已锁定。需要修正数据时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
+            {isClosed ? '本月金额和结账结果已锁定，行动复盘仍可更新；需要修正金额时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
           </p>
 
           {selectedSummary?.netChange != null && (
@@ -2274,7 +2309,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 <div key={action.id} className="flex items-start gap-2 text-sm text-slate-600">
                   <input type="checkbox" checked={action.done === true} onChange={() => toggleAction(sel, action.id)} className="mt-0.5 accent-indigo-600" />
                   <span className={`flex-1 ${action.done ? 'line-through text-slate-400' : ''}`}>{action.text}{action.metric && action.metric !== 'none' ? <span className="block text-xs text-slate-400 mt-0.5">观察：{ACTION_METRICS[action.metric]}</span> : null}</span>
-                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => setDeleteAction({ month: sel, id: action.id })} className="text-slate-300 hover:text-rose-500" title="删除行动" aria-label={`删除行动 ${action.text}`}><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>}
@@ -2314,7 +2349,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                   <td className="px-3 py-2 text-right text-emerald-600">{wanSign(s.saved)}</td>
                   <td className={`px-3 py-2 text-right ${(s.nonCashChange || 0) >= 0 ? 'text-amber-600' : 'text-rose-500'}`}>{s.netChange == null ? '-' : wanSign(s.nonCashChange)}</td>
                   <td className="px-3 py-2 text-right">
-                    <button onClick={() => setDeleteMonth(s.month)} className="text-slate-300 hover:text-rose-500" title={`删除 ${s.month}`}><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => setDeleteMonth(s.month)} className="text-slate-300 hover:text-rose-500" title={`删除 ${s.month}`} aria-label={`删除 ${s.month}`}><Trash2 className="w-4 h-4" /></button>
                   </td>
                 </tr>
               ))}
@@ -2324,10 +2359,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       </div>
       {deleteMonth && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-month-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-rose-600" />
-              <h3 className="font-semibold">删除月度记录</h3>
+              <h3 id="delete-month-title" className="font-semibold">删除月度记录</h3>
             </div>
             <p className="text-sm text-slate-600 mb-2">确定删除 <span className="font-medium">{deleteMonth}</span> 的全部结账数据吗？</p>
             <p className="text-xs text-rose-600 bg-rose-50 rounded-lg p-2.5 mb-4">删除后，该月份将从净资产趋势、年度统计和历史记录中移除，且无法恢复。</p>
@@ -2340,19 +2375,28 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       )}
       {deleteAction && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
-            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 className="font-semibold">删除行动项</h3></div>
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-action-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 id="delete-action-title" className="font-semibold">删除行动项</h3></div>
             <p className="text-sm text-slate-600 mb-4">删除后，该行动不会在下个月结账时出现。</p>
             <div className="flex gap-2 justify-end"><button onClick={() => setDeleteAction(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={confirmDeleteAction} className="px-4 py-2 text-sm bg-rose-600 text-white rounded-lg">确认删除</button></div>
           </div>
         </div>
       )}
+      {reopenCheckOpen && sel && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div role="dialog" aria-modal="true" aria-labelledby="reopen-month-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-amber-600" /><h3 id="reopen-month-title" className="font-semibold">重新编辑 {sel}？</h3></div>
+            <p className="text-sm text-slate-600 mb-4">重新编辑会打开本月金额并将结账状态改回「录入中」，已保存的简报、行动和目标快照会保留；修改完成后请再次结账。</p>
+            <div className="flex gap-2 justify-end"><button onClick={() => setReopenCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={reopenMonth} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg">确认重新编辑</button></div>
+          </div>
+        </div>
+      )}
       {closeCheckOpen && sel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
+          <div role="dialog" aria-modal="true" aria-labelledby="close-check-title" className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className={`w-5 h-5 ${closeBlockers.length ? 'text-rose-600' : 'text-amber-600'}`} />
-              <h3 className="font-semibold">结账检查 · {sel}</h3>
+              <h3 id="close-check-title" className="font-semibold">结账检查 · {sel}</h3>
             </div>
             {closeBlockers.length > 0 ? (
               <div className="mb-4">
@@ -2421,6 +2465,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
   const suggestedEmergencyTarget = recentAvgExpense * coverageMonthsTarget;
   const visibleAssetAccounts = assetAccounts.filter((account) => {
     const checked = draft.linkedAccountIds.includes(account.id);
+    if (!isActive(account) && !checked) return false;
     if (checked) return true;
     if (draft.goalType === 'emergency') return getAssetCategory(account) === 'cash';
     return getAssetCategory(account) !== 'fixed';
@@ -2435,7 +2480,13 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
     const targetAmount = Number(draft.targetAmount);
     const currentAmount = Number(draft.currentAmount) || 0;
     const linkedAccountIds = Array.isArray(draft.linkedAccountIds) ? draft.linkedAccountIds : [];
+    const existingGoal = editingId ? goals.find((goal) => goal.id === editingId) : null;
+    const existingLinkedAccountIds = Array.isArray(existingGoal?.linkedAccountIds) ? existingGoal.linkedAccountIds : [];
     const conflictingAccounts = linkedAccountIds.filter((accountId) => goals.some((goal) => goal.id !== editingId && Array.isArray(goal.linkedAccountIds) && goal.linkedAccountIds.includes(accountId)));
+    const newlyLinkedInactiveAccounts = linkedAccountIds.filter((accountId) => {
+      const account = assetAccounts.find((item) => item.id === accountId);
+      return account && !isActive(account) && !existingLinkedAccountIds.includes(accountId);
+    });
     const incompatibleSourceAccounts = linkedAccountIds.filter((accountId) => {
       const category = getAssetCategory(assetAccounts.find((account) => account.id === accountId));
       return draft.goalType === 'emergency' ? category !== 'cash' : category === 'fixed';
@@ -2450,6 +2501,10 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
     }
     if (incompatibleSourceAccounts.length > 0) {
       setError(draft.goalType === 'emergency' ? '应急资金只能关联现金类资产，请取消投资或固定资产账户。' : '固定资产不能作为目标资金来源，请先取消对应账户。');
+      return;
+    }
+    if (newlyLinkedInactiveAccounts.length > 0) {
+      setError('停用账户不能新增为目标资金来源，请先重新启用或更换账户。');
       return;
     }
     if (conflictingAccounts.length > 0) {
@@ -2593,8 +2648,8 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
                   <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span>{isEmergency && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-600">应急资金</span>}</div>
                   <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}{linkedAccountIds.length > 0 ? ` · 自动汇总 ${linkedAccountIds.length} 个账户` : ' · 手动金额'}</p>
                 </div>
-                <button onClick={() => editGoal(goal)} className="text-slate-400 hover:text-indigo-600" title={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
-                <button onClick={() => setDeleteId(goal.id)} className="text-slate-400 hover:text-rose-600" title={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
+                <button onClick={() => editGoal(goal)} className="text-slate-400 hover:text-indigo-600" title={`编辑 ${goal.name}`} aria-label={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
+                <button onClick={() => setDeleteId(goal.id)} className="text-slate-400 hover:text-rose-600" title={`删除 ${goal.name}`} aria-label={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
               </div>
               <div className="flex justify-between text-sm mt-3"><span className="text-slate-500">{fmtWan(currentAmount)} / {fmtWan(targetAmount)}</span><span className="font-medium text-indigo-600">{(progress * 100).toFixed(1)}%</span></div>
               <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
@@ -2629,8 +2684,8 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
 
       {deleteId && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
-            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 className="font-semibold">删除家庭目标</h3></div>
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-goal-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 id="delete-goal-title" className="font-semibold">删除家庭目标</h3></div>
             <p className="text-sm text-slate-600 mb-4">删除后无法恢复，但不会影响账户和月度数据。</p>
             <div className="flex gap-2"><button onClick={confirmDelete} className="flex-1 bg-rose-600 text-white rounded-lg py-2 text-sm">确认删除</button><button onClick={() => setDeleteId(null)} className="flex-1 bg-slate-100 rounded-lg py-2 text-sm">取消</button></div>
           </div>
@@ -2881,10 +2936,10 @@ function PasswordModal({ onSave, onClose }) {
   };
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+      <div role="dialog" aria-modal="true" aria-labelledby="password-modal-title" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold flex items-center gap-2"><Lock className="w-5 h-5 text-indigo-600" />修改密码</h3>
-          <button onClick={onClose}><X className="w-5 h-5 text-slate-400" /></button>
+          <h3 id="password-modal-title" className="font-semibold flex items-center gap-2"><Lock className="w-5 h-5 text-indigo-600" />修改密码</h3>
+          <button onClick={onClose} aria-label="关闭修改密码"><X className="w-5 h-5 text-slate-400" /></button>
         </div>
         <div className="space-y-3">
           <Field label="原密码"><input type="password" inputMode="numeric" maxLength="6" value={oldPassword} onChange={(e) => { setOldPassword(clean(e.target.value)); setError(''); }} className="w-full border border-slate-200 rounded-lg px-3 py-2" /></Field>
