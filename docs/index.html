@@ -1765,6 +1765,19 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   const newMonthPreviousMonths = newMonthIsValid ? months.filter((m) => m < newMonth) : [];
   const newMonthPrevious = newMonthPreviousMonths[newMonthPreviousMonths.length - 1];
   const canChooseOrCreateMonth = newMonthIsValid && (newMonthExists || !newMonthPrevious || monthStatus[newMonthPrevious] === 'closed');
+  const latestMonth = months[months.length - 1] || null;
+  const nextAvailableMonth = latestMonth ? nextMonth(latestMonth) : currentMonth;
+  const newMonthActionLabel = newMonthExists ? '查看该月' : '新建月份';
+  const NewMonthActionIcon = newMonthExists ? CalendarClock : PlusCircle;
+  const newMonthHint = !newMonthIsValid
+    ? '请选择有效月份。'
+    : newMonthExists
+      ? `${newMonth} 已有记录，点击按钮切换查看。`
+      : newMonthPrevious && monthStatus[newMonthPrevious] !== 'closed'
+        ? `请先完成 ${newMonthPrevious} 的结账，才能新建 ${newMonth}。`
+        : newMonthPrevious
+          ? `将沿用 ${newMonthPrevious} 的余额和固定支出默认值，创建后再逐项核对。`
+          : '没有前置月份，可以直接建立首个月度记录。';
 
   const rec = records[sel] || {};
   const previousMonths = months.filter((m) => m < sel);
@@ -2014,29 +2027,44 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
 
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-xl p-4 border border-slate-200 flex items-center gap-2 flex-wrap">
-        <span className="text-sm text-slate-500">结账月份</span>
-        <select value={sel || ''} onChange={(e) => { setSel(e.target.value); setCloseCheckOpen(false); }} className="border border-slate-200 rounded-lg px-3 py-2 text-sm">
-          {months.length === 0 && <option value="">（暂无月份）</option>}
-          {months.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        {sel && <span className={`text-xs font-medium px-2 py-1 rounded-full ${isClosed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{isClosed ? '已结账' : '录入中'}</span>}
-        <div className="ml-auto flex items-center gap-2">
-          <input type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2 py-2 text-sm" />
-          <button onClick={addMonth} disabled={!canChooseOrCreateMonth}
-            title={!canChooseOrCreateMonth && newMonthPrevious ? `请先完成 ${newMonthPrevious} 结账` : ''}
-            className="flex items-center gap-1 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg whitespace-nowrap disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed">
-            <PlusCircle className="w-4 h-4" />选择/新建
-          </button>
+      <div className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <CalendarClock className="w-4 h-4 text-indigo-600" />查看已有月份
+            </div>
+            <p className="text-xs text-slate-500 mt-1">切换到任意已记录月份，查看或继续处理该月数据。</p>
+            <div className="flex items-center gap-2 mt-3">
+              <select aria-label="查看已有月份" value={sel || ''} onChange={(e) => { setSel(e.target.value); setCloseCheckOpen(false); }} className="min-w-0 flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
+                {months.length === 0 && <option value="">（暂无月份）</option>}
+                {months.map((m) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              {sel && <span className={`shrink-0 text-xs font-medium px-2 py-1 rounded-full ${isClosed ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{isClosed ? '已结账' : '录入中'}</span>}
+            </div>
+            {latestMonth && <p className="text-[11px] text-slate-400 mt-2">最新记录：{latestMonth}</p>}
+          </div>
+
+          <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
+              <PlusCircle className="w-4 h-4 text-indigo-600" />新建月份
+            </div>
+            <p className="text-xs text-indigo-700 mt-1">按月份顺序补录，默认建议下一月份：{nextAvailableMonth}。</p>
+            <div className="flex items-center gap-2 mt-3">
+              <input aria-label="新建月份" type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)}
+                className="min-w-0 flex-1 border border-indigo-200 rounded-lg px-2 py-2 text-sm bg-white" />
+              <button onClick={addMonth} disabled={!canChooseOrCreateMonth}
+                title={!canChooseOrCreateMonth && newMonthPrevious ? `请先完成 ${newMonthPrevious} 结账` : ''}
+                className="shrink-0 flex items-center gap-1 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg whitespace-nowrap disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed">
+                <NewMonthActionIcon className="w-4 h-4" />{newMonthActionLabel}
+              </button>
+            </div>
+            <p className={`text-[11px] mt-2 ${!canChooseOrCreateMonth && newMonthIsValid && !newMonthExists ? 'text-amber-700' : 'text-indigo-700'}`}>{newMonthHint}</p>
+          </div>
         </div>
-        {!canChooseOrCreateMonth && newMonthIsValid && !newMonthExists && newMonthPrevious && (
-          <p className="w-full text-xs text-amber-600 text-right">请先完成 {newMonthPrevious} 的结账，才能新建 {newMonth}。</p>
-        )}
       </div>
 
       {!sel ? (
-        <p className="text-sm text-slate-500 bg-white rounded-xl p-4 border border-slate-200">还没有任何月份，点右上角「结算新月份」开始录入。</p>
+        <p className="text-sm text-slate-500 bg-white rounded-xl p-4 border border-slate-200">还没有任何月份，请在上方「新建月份」选择月份并开始录入。</p>
       ) : (
         <>
           <div className="bg-white rounded-xl p-4 border border-slate-200 grid grid-cols-3 gap-2 text-center">
