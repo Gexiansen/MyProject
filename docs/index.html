@@ -125,7 +125,6 @@ function icon(shapes) {
   };
 }
 const Wallet = icon([['path',{d:'M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4'}],['path',{d:'M4 6v12c0 1.1.9 2 2 2h14v-4'}],['path',{d:'M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z'}]]);
-const TrendingUp = icon([['polyline',{points:'22 7 13.5 15.5 8.5 10.5 2 17'}],['polyline',{points:'16 7 22 7 22 13'}]]);
 const PiggyBank = icon([['path',{d:'M19 5c-1.5 0-2.8 1.4-3 2-3.5-1.5-11-.3-11 5 0 1.8.7 3.2 2 4.5V20h4v-2h3v2h4v-4c1-.5 1.7-1 2-2h2v-4h-2c0-1-.5-1.5-1-2V5z'}],['path',{d:'M2 9v1c0 1.1.9 2 2 2h1'}],['path',{d:'M16 11h.01'}]]);
 const Target = icon([['circle',{cx:12,cy:12,r:10}],['circle',{cx:12,cy:12,r:6}],['circle',{cx:12,cy:12,r:2}]]);
 const PlusCircle = icon([['circle',{cx:12,cy:12,r:10}],['path',{d:'M8 12h8'}],['path',{d:'M12 8v8'}]]);
@@ -1221,12 +1220,56 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Wallet} label="净资产" value={fmtWan(latest.nw)} tone="indigo"
-          sub={latest.netChange != null ? `本月 ${wanSign(latest.netChange)}` : ''} />
-        <StatCard icon={PiggyBank} label="本月攒的" value={fmtWan(latest.saved)} tone="amber" sub={`收入 ${fmtWan(latest.inc)} · 支出 ${fmtWan(latest.exp)}`} />
-        <StatCard icon={TrendingUp} label="总资产" value={fmtWan(latest.assets)} tone="emerald" sub={`现金 ${fmtWan(latest.cash)} · 投资 ${fmtWan(latest.invest)} · 固定 ${fmtWan(latest.fixed)}`} />
-        <StatCard icon={Target} label="总负债" value={fmtWan(latest.liab)} tone="rose" />
+      <div className="grid md:grid-cols-2 gap-3">
+        <section aria-labelledby="asset-status-title" className="bg-white rounded-xl p-4 border border-slate-200">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex p-1.5 rounded-lg text-indigo-600 bg-indigo-50"><Wallet className="w-4 h-4" /></span>
+            <h2 id="asset-status-title" className="text-sm font-semibold text-slate-700">资产状态</h2>
+          </div>
+          <div className="flex items-end justify-between gap-3 mt-3">
+            <div>
+              <div className="text-xs text-slate-500">净资产</div>
+              <div className="text-2xl font-bold text-slate-800 mt-0.5">{fmtWan(latest.nw)}</div>
+            </div>
+            {latest.netChange != null && (
+              <div className={`text-xs font-medium rounded-full px-2.5 py-1 ${latest.netChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                本月变化 {wanSign(latest.netChange)}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-100">
+            <div>
+              <div className="text-xs text-slate-400">总资产</div>
+              <div className="text-base font-semibold text-emerald-600 mt-0.5">{fmtWan(latest.assets)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400">总负债</div>
+              <div className="text-base font-semibold text-rose-600 mt-0.5">{fmtWan(latest.liab)}</div>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 mt-2">现金 {fmtWan(latest.cash)} · 投资 {fmtWan(latest.invest)} · 固定 {fmtWan(latest.fixed)}</p>
+        </section>
+
+        <section aria-labelledby="monthly-cashflow-title" className="bg-white rounded-xl p-4 border border-slate-200">
+          <div className="flex items-center gap-2">
+            <span className="inline-flex p-1.5 rounded-lg text-amber-600 bg-amber-50"><PiggyBank className="w-4 h-4" /></span>
+            <h2 id="monthly-cashflow-title" className="text-sm font-semibold text-slate-700">本月现金流</h2>
+          </div>
+          <div className="mt-3">
+            <div className="text-xs text-slate-500">本月攒下</div>
+            <div className={`text-2xl font-bold mt-0.5 ${latest.saved >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtWan(latest.saved)}</div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-100">
+            <div>
+              <div className="text-xs text-slate-400">收入</div>
+              <div className="text-base font-semibold text-emerald-600 mt-0.5">{fmtWan(latest.inc)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-slate-400">支出</div>
+              <div className="text-base font-semibold text-amber-600 mt-0.5">{fmtWan(latest.exp)}</div>
+            </div>
+          </div>
+        </section>
       </div>
 
       {monthlyAction && (
@@ -1669,22 +1712,6 @@ function AssetStructureTooltip({ active, payload, label }) {
     { label: '投资', value: `${(d.投资 * 100).toFixed(1)}% · ${fmtWan(d.投资金额)}` },
     { label: '固定资产', value: `${(d.固定资产 * 100).toFixed(1)}% · ${fmtWan(d.固定资产金额)}` },
   ]} />;
-}
-
-function StatCard({ icon: Icon, label, value, sub, tone }) {
-  const tones = {
-    indigo: 'text-indigo-600 bg-indigo-50', emerald: 'text-emerald-600 bg-emerald-50',
-    amber: 'text-amber-600 bg-amber-50', rose: 'text-rose-600 bg-rose-50',
-    violet: 'text-violet-600 bg-violet-50', sky: 'text-sky-600 bg-sky-50',
-  };
-  return (
-    <div className="bg-white rounded-xl p-3 border border-slate-200">
-      <div className={`inline-flex p-1.5 rounded-lg mb-1 ${tones[tone]}`}><Icon className="w-4 h-4" /></div>
-      <div className="text-xs text-slate-500 truncate">{label}</div>
-      <div className="text-lg font-bold">{value}</div>
-      {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
-    </div>
-  );
 }
 
 // ---------- 账户管理 ----------
