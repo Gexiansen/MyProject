@@ -67,11 +67,20 @@
     if (idx >= lib.urls.length) { done(new Error(lib.global)); return; }
     var s = document.createElement('script');
     s.src = lib.urls[idx];
+    var settled = false;
+    var timer = setTimeout(function () { finish(false); }, 12000);
+    function finish(ok) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      s.onload = s.onerror = null;
+      if (ok) done(null);
+      else { s.remove(); loadOne(lib, idx + 1, done); }
+    }
     s.onload = function () {
-      if (window[lib.global]) done(null);
-      else loadOne(lib, idx + 1, done); // 下载成功但没建立全局变量，试下一个镜像
+      finish(Boolean(window[lib.global]));
     };
-    s.onerror = function () { loadOne(lib, idx + 1, done); };
+    s.onerror = function () { finish(false); };
     document.head.appendChild(s);
   }
 
@@ -296,17 +305,43 @@ const STORAGE_KEY = 'family-finance-v1';
 const PASSWORD_KEY = 'family-finance-password';
 const DEFAULT_PASSWORD = '123456';
 function loadSaved() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const obj = JSON.parse(raw);
-    if (obj && Array.isArray(obj.accounts) && obj.records && typeof obj.records === 'object') return obj;
-  } catch (e) { /* ignore */ }
-  return null;
+    raw = localStorage.getItem(STORAGE_KEY);
+    if (raw == null) return { data: null, error: null, raw };
+    return { data: normalizeImportedData(JSON.parse(raw)), error: null, raw };
+  } catch (e) {
+    return { data: null, error: e.message || '无法读取本机数据', raw };
+  }
+}
+
+function markLaterMonthsForReview(meta, month, records, monthStatus) {
+  const next = { ...meta };
+  Object.keys(records).filter((key) => key > month && monthStatus[key] === 'closed').forEach((key) => {
+    next[key] = { ...(next[key] || {}), reviewRequired: true, reviewReason: `${month} 的历史金额或记录已变更` };
+  });
+  return next;
+}
+
+function cleanAccountMeta(meta, id, draftOnly = false) {
+  return Object.fromEntries(Object.entries(meta).map(([month, item]) => {
+    const next = { ...item };
+    (draftOnly ? ['pendingAmountDrafts', 'pendingAmountOriginals'] : ['pendingAmountDrafts', 'pendingAmountOriginals', 'changeReasons']).forEach((field) => {
+      if (next[field]) { next[field] = { ...next[field] }; delete next[field][id]; }
+    });
+    if (!draftOnly) ['inheritedBalanceIds', 'reviewedBalanceIds', 'initialFlowIds', 'reviewedFlowIds'].forEach((field) => {
+      if (Array.isArray(next[field])) next[field] = next[field].filter((value) => value !== id);
+    });
+    return [month, next];
+  }));
 }
 
 function normalizeImportedData(obj) {
   const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
+  const isAmount = (value) => (typeof value === 'number' || typeof value === 'string' && /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim())) && Number.isFinite(Number(value));
+  const validMonth = (value) => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+  const checkAmount = (value, field) => { if (value != null && value !== '' && !isAmount(value)) throw new Error(`${field}不是有效数字。`); };
+  const checkIds = (value, field) => { if (value != null && (!Array.isArray(value) || value.some((id) => typeof id !== 'string'))) throw new Error(`${field}应为账户 ID 列表。`); };
   if (!isObject(obj)) throw new Error('文件内容不是有效的家庭财务数据。');
   if (!Array.isArray(obj.accounts)) throw new Error('文件缺少账户列表。');
   if (!isObject(obj.records)) throw new Error('文件缺少月度记录。');
@@ -321,6 +356,9 @@ function normalizeImportedData(obj) {
     if (typeof account.name !== 'string' || !account.name.trim()) throw new Error(`账户「${account.id}」缺少名称。`);
     if (!allowedTypes.has(account.type)) throw new Error(`账户「${account.name}」的类型无法识别。`);
     if (!MEMBERS.includes(account.member)) throw new Error(`账户「${account.name}」的成员归属无法识别。`);
+    if (account.active != null && typeof account.active !== 'boolean' || account.isFixed != null && typeof account.isFixed !== 'boolean') throw new Error(`账户「${account.name}」的启用或固定支出状态无效。`);
+    if (account.category != null && !Object.hasOwn(CATS, account.category)) throw new Error(`账户「${account.name}」的资产分类无效。`);
+    checkAmount(account.fixedAmount, `账户「${account.name}」的固定金额`);
     accountIds.add(account.id);
     return { ...account, active: account.active !== false };
   });
@@ -334,7 +372,7 @@ function normalizeImportedData(obj) {
     if (!isObject(record)) throw new Error(`${month} 的月度记录格式无效。`);
     Object.entries(record).forEach(([accountId, value]) => {
       if (!accountIds.has(accountId)) throw new Error(`${month} 中存在无法匹配账户的记录「${accountId}」。`);
-      if (value !== '' && value != null && !Number.isFinite(Number(value))) {
+      if (value !== '' && value != null && !isAmount(value)) {
         throw new Error(`${month} 中账户「${accountId}」的金额不是有效数字。`);
       }
     });
@@ -345,6 +383,43 @@ function normalizeImportedData(obj) {
   if (obj.goals != null && !Array.isArray(obj.goals)) throw new Error('家庭目标格式无效。');
   if (obj.monthMeta != null && !isObject(obj.monthMeta)) throw new Error('月份补充信息格式无效。');
   if (obj.goalHistory != null && !isObject(obj.goalHistory)) throw new Error('目标历史格式无效。');
+  Object.entries(obj.monthStatus || {}).forEach(([month, status]) => {
+    if (!validMonth(month) || !Object.hasOwn(records, month) || !['draft', 'closed'].includes(status)) throw new Error(`${month} 的结账状态无效。`);
+  });
+  const goalIds = new Set();
+  (obj.goals || []).forEach((goal, index) => {
+    if (!isObject(goal) || typeof goal.id !== 'string' || !goal.id || goalIds.has(goal.id) || typeof goal.name !== 'string' || !goal.name.trim() || !validMonth(goal.targetDate)) throw new Error(`第 ${index + 1} 个家庭目标的 ID、名称或目标日期无效。`);
+    goalIds.add(goal.id);
+    if (!isAmount(goal.targetAmount) || Number(goal.targetAmount) <= 0) throw new Error(`目标「${goal.name}」的目标金额应大于 0。`);
+    if (goal.goalType != null && !['standard', 'emergency'].includes(goal.goalType) || goal.priority != null && !['high', 'medium', 'low'].includes(goal.priority)) throw new Error(`目标「${goal.name}」的类型或优先级无效。`);
+    ['targetAmount', 'currentAmount', 'coverageMonthsTarget'].forEach((field) => checkAmount(goal[field], `目标「${goal.name}」的 ${field}`));
+    checkIds(goal.linkedAccountIds, `目标「${goal.name}」的资金来源`);
+  });
+  Object.entries(obj.monthMeta || {}).forEach(([month, meta]) => {
+    if (!validMonth(month) || !Object.hasOwn(records, month) || !isObject(meta)) throw new Error(`${month} 的补充信息无效。`);
+    if (meta.reviewRequired != null && typeof meta.reviewRequired !== 'boolean' || meta.reviewReason != null && typeof meta.reviewReason !== 'string' || meta.reopenedAt != null && typeof meta.reopenedAt !== 'string') throw new Error(`${month} 的复核状态无效。`);
+    ['inheritedBalanceIds', 'reviewedBalanceIds', 'initialFlowIds', 'reviewedFlowIds'].forEach((field) => checkIds(meta[field], `${month} 的 ${field}`));
+    ['pendingAmountDrafts', 'pendingAmountOriginals', 'changeReasons'].forEach((field) => {
+      if (meta[field] != null && !isObject(meta[field])) throw new Error(`${month} 的 ${field} 格式无效。`);
+      Object.entries(meta[field] || {}).forEach(([id, value]) => {
+        if (!accountIds.has(id)) throw new Error(`${month} 的 ${field} 引用了不存在的账户「${id}」。`);
+        if (field === 'pendingAmountOriginals') checkAmount(value, `${month} 的账户「${id}」原金额`);
+        else if (typeof value !== 'string') throw new Error(`${month} 的 ${field} 中「${id}」应为文本。`);
+      });
+    });
+    if (meta.actions != null && (!Array.isArray(meta.actions) || meta.actions.some((action) => !isObject(action) || typeof action.id !== 'string' || typeof action.text !== 'string' || typeof action.done !== 'boolean' || action.metric != null && !Object.hasOwn(ACTION_METRICS, action.metric)))) throw new Error(`${month} 的行动列表格式无效。`);
+  });
+  Object.entries(obj.goalHistory || {}).forEach(([month, snapshots]) => {
+    if (!validMonth(month) || !Object.hasOwn(records, month) || !isObject(snapshots)) throw new Error(`${month} 的目标快照格式无效。`);
+    Object.entries(snapshots).forEach(([id, snapshot]) => {
+      if (!isObject(snapshot)) throw new Error(`${month} 的目标「${id}」快照无效。`);
+      if (snapshot.name != null && typeof snapshot.name !== 'string') throw new Error(`${month} 的目标「${id}」名称无效。`);
+      ['targetAmount', 'currentAmount', 'coverageMonthsTarget'].forEach((field) => checkAmount(snapshot[field], `${month} 的目标「${id}」${field}`));
+      if (snapshot.targetDate != null && !validMonth(snapshot.targetDate)) throw new Error(`${month} 的目标「${id}」日期无效。`);
+      checkIds(snapshot.linkedAccountIds, `${month} 的目标「${id}」资金来源`);
+    });
+  });
+  if (obj.withdrawalRate != null && !isAmount(obj.withdrawalRate)) throw new Error('提取率不是有效数字。');
   const withdrawalRate = obj.withdrawalRate == null ? 4 : Number(obj.withdrawalRate);
   if (!Number.isFinite(withdrawalRate) || withdrawalRate < 3 || withdrawalRate > 6) throw new Error('提取率应在 3% 到 6% 之间。');
 
@@ -435,7 +510,9 @@ function buildDemo() {
 // ---------- 主组件 ----------
 function FamilyFinance({ onChangePassword }) {
   const demo = useMemo(buildDemo, []);
-  const saved = useMemo(loadSaved, []);
+  const loaded = useMemo(loadSaved, []);
+  const saved = loaded.data;
+  const [loadError, setLoadError] = useState(loaded.error);
 
   const [accounts, setAccounts] = useState(() =>
     saved ? saved.accounts.map((a) => ({ ...a, active: a.active !== false })) : demo.accounts.map((a) => ({ ...a }))
@@ -470,6 +547,7 @@ function FamilyFinance({ onChangePassword }) {
   const importDialogRef = useDialogA11y(Boolean(importPreview), () => setImportPreview(null));
 
   useEffect(() => {
+    if (loadError) return;
     try {
       const payload = JSON.stringify({ accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt, isDemoData });
       localStorage.setItem(STORAGE_KEY, payload);
@@ -478,7 +556,7 @@ function FamilyFinance({ onChangePassword }) {
       const t = setTimeout(() => setSaveStatus(''), 1500);
       return () => clearTimeout(t);
     } catch (e) { setSaveStatus('error'); }
-  }, [accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt, isDemoData]);
+  }, [accounts, records, withdrawalRate, monthStatus, goals, monthMeta, goalHistory, lastExportAt, isDemoData, loadError]);
 
   useEffect(() => {
     if (!moreMenuOpen) return;
@@ -599,7 +677,7 @@ function FamilyFinance({ onChangePassword }) {
         && inheritedBalanceIds.includes(account.id) && !reviewedBalanceIds.includes(account.id)) pendingIds.add(account.id);
       if (isTrackedFlowAccount(account) && initialFlowIds.includes(account.id) && !reviewedFlowIds.includes(account.id)) pendingIds.add(account.id);
     });
-    Object.keys(meta.pendingAmountDrafts || {}).forEach((accountId) => pendingIds.add(accountId));
+    Object.keys(meta.pendingAmountDrafts || {}).filter((id) => accounts.some((account) => account.id === id && isActive(account))).forEach((accountId) => pendingIds.add(accountId));
     return { isDraft: monthStatus[latest.month] !== 'closed', pendingCount: pendingIds.size };
   }, [accounts, latest, monthMeta, monthStatus, records]);
 
@@ -662,6 +740,7 @@ function FamilyFinance({ onChangePassword }) {
       const periodShortLabel = isFullYear ? `${y}全年` : startMonth === 1 ? `${y}截至${endMonth}月` : `${y} ${startMonth}—${endMonth}月`;
       const last = arr[arr.length - 1];
       const savedSum = arr.reduce((s, x) => s + x.saved, 0);
+      const growthSaved = arr.reduce((s, x) => s + (x.netChange == null ? 0 : x.saved), 0);
       const nonCashChangeSum = arr.reduce((s, x) => s + x.nonCashChange, 0);
       const incSum = arr.reduce((s, x) => s + x.inc, 0);
       const expSum = arr.reduce((s, x) => s + x.exp, 0);
@@ -669,7 +748,8 @@ function FamilyFinance({ onChangePassword }) {
       const prevLiab = prevEnd ? prevEnd.liab : arr[0].liab;
       const res = {
         year: y, startMonth, endMonth, monthCount, missingMonths, isFullYear, periodLabel, periodShortLabel,
-        netWorth: last.nw, saved: savedSum, nonCashChange: nonCashChangeSum, growth: savedSum + nonCashChangeSum,
+        netWorth: last.nw, saved: savedSum, growthSaved, nonCashChange: nonCashChangeSum, growth: growthSaved + nonCashChangeSum,
+        missingOpeningBalance: arr[0].netChange == null, baselineMonth: arr[0].month, comparisonYear: prevEnd?.month.slice(0, 4),
         income: incSum, expenses: expSum, savingsRate: incSum ? savedSum / incSum : 0,
         totalAssets: last.assets, liabilities: last.liab, debtReduced: prevLiab - last.liab,
         concentration: last.concentration,
@@ -682,7 +762,7 @@ function FamilyFinance({ onChangePassword }) {
   }, [series]);
 
   const latestDataLabel = latest
-    ? `数据截至 ${Number(latest.month.slice(0, 4))}年${Number(latest.month.slice(5, 7))}月 · ${monthStatus[latest.month] === 'closed' ? '已结账' : '录入中'}`
+    ? `数据截至 ${Number(latest.month.slice(0, 4))}年${Number(latest.month.slice(5, 7))}月 · ${monthMeta[latest.month]?.reviewRequired ? '需要复核' : monthStatus[latest.month] === 'closed' ? '已结账' : '录入中'}`
     : '尚未建立月度记录';
   const currentDate = new Date();
   const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
@@ -755,6 +835,7 @@ function FamilyFinance({ onChangePassword }) {
     setGoalHistory(data.goalHistory);
     setLastExportAt(data.lastExportAt);
     setIsDemoData(data.isDemoData);
+    setLoadError(null);
     setImportResult({ type: 'success', message: `导入完成：${importPreview.summary.accountCount} 个账户，${importPreview.summary.monthCount} 个月度记录。` });
     setImportPreview(null);
     setTab('overview');
@@ -794,7 +875,7 @@ function FamilyFinance({ onChangePassword }) {
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
+      {!loadError && <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
         <div className="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <PiggyBank className="w-6 h-6 text-indigo-600" />
@@ -838,9 +919,19 @@ function FamilyFinance({ onChangePassword }) {
             );
           })}
         </div>
-      </header>
+      </header>}
 
       <main className="max-w-4xl mx-auto px-4 py-4 pb-16">
+        {loadError && <div role="alert" className="bg-white border border-rose-200 rounded-xl p-5 space-y-3">
+          <h1 className="font-semibold text-rose-700">本机数据读取失败，已暂停自动保存</h1>
+          <p className="text-sm text-slate-600">原数据没有被演示数据覆盖。请先下载原始内容，再导入一份有效的备份恢复。</p>
+          <p className="text-xs text-rose-600 break-words">{loadError}</p>
+          <div className="flex flex-wrap gap-2">
+            {loaded.raw != null && <button className="px-3 py-2 rounded-lg bg-slate-100 text-sm" onClick={() => { const url = URL.createObjectURL(new Blob([loaded.raw], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'family-finance-recovery.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }}>下载原始数据</button>}
+            <label className="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm cursor-pointer">导入备份恢复<input type="file" accept=".json,application/json" onChange={prepareImport} className="hidden" /></label>
+            <button className="px-3 py-2 rounded-lg bg-slate-100 text-sm" onClick={() => location.reload()}>重新读取</button>
+          </div>
+        </div>}
         {importResult && (
           <div role={importResult.type === 'error' ? 'alert' : 'status'}
             className={`mb-4 flex items-start gap-2 rounded-xl border px-4 py-3 text-sm ${importResult.type === 'error' ? 'border-rose-200 bg-rose-50 text-rose-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}`}>
@@ -848,6 +939,7 @@ function FamilyFinance({ onChangePassword }) {
             <button onClick={() => setImportResult(null)} aria-label="关闭导入结果" className="min-w-10 min-h-10 -my-1 -mr-1 inline-flex items-center justify-center rounded-lg hover:bg-emerald-100"><X className="w-4 h-4" /></button>
           </div>
         )}
+        {!loadError && <>
         {isDemoData && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
             <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -863,19 +955,16 @@ function FamilyFinance({ onChangePassword }) {
           </div>
         )}
         {(tab === 'accounts' || tab === 'closing') && <OperationPageHeader tab={tab} setTab={setTab} />}
-        {dataIsStale && (tab === 'overview' || tab === 'goals') && <DataStaleNotice latestMonth={latest.month} lagMonths={dataLagMonths} setTab={setTab} />}
-        {latestInputSummary.isDraft && (tab === 'overview' || tab === 'annual' || tab === 'goals') && (
-          <DraftPreviewNotice latestMonth={latest.month} pendingCount={latestInputSummary.pendingCount} setTab={setTab} />
-        )}
+        {latest && ['overview', 'annual', 'goals'].includes(tab) && (monthlyAction || monthMeta[latest.month]?.reviewRequired) && <DataStatusNotice latestMonth={latest.month} lagMonths={dataIsStale ? dataLagMonths : 0} isDraft={latestInputSummary.isDraft} pendingCount={latestInputSummary.pendingCount} reviewRequired={monthMeta[latest.month]?.reviewRequired} monthlyAction={monthlyAction} setTab={setTab} />}
         {tab === 'overview' && (
           <Overview latest={latest} chartData={chartData} series={series} fire={fire} cashflow={cashflow}
             withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
             accounts={accounts} records={records} range={range} setRange={setRange} goals={goals} setTab={setTab}
-            monthMeta={monthMeta} lastExportAt={lastExportAt} monthlyAction={monthlyAction} />
+            monthMeta={monthMeta} lastExportAt={lastExportAt} />
         )}
         {tab === 'accounts' && (
           <Accounts accounts={accounts} setAccounts={setAccounts} setRecords={setRecords}
-            latest={latest} records={records} monthStatus={monthStatus} />
+            latest={latest} records={records} monthStatus={monthStatus} setMonthMeta={setMonthMeta} />
         )}
         {tab === 'closing' && (
           <Closing accounts={accounts} setAccounts={setAccounts} records={records} setRecords={setRecords}
@@ -883,8 +972,9 @@ function FamilyFinance({ onChangePassword }) {
             goals={goals} setGoalHistory={setGoalHistory} />
         )}
         {tab === 'goals' && <Goals goals={goals} setGoals={setGoals} goalHistory={goalHistory} setGoalHistory={setGoalHistory}
-          accounts={accounts} records={records} latest={latest} series={series} />}
+          accounts={accounts} records={records} latest={latest} series={series} monthMeta={monthMeta} />}
         {tab === 'annual' && <Annual annual={annual} />}
+        </>}
       </main>
 
       {resetOpen && (
@@ -926,7 +1016,7 @@ function FamilyFinance({ onChangePassword }) {
             <p className="text-sm text-rose-700 bg-rose-50 rounded-lg p-3 mt-3">确认后将覆盖当前浏览器中的账户、月度记录、目标和相关设置。此操作无法直接撤销。</p>
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 mt-4">
               <button data-dialog-autofocus onClick={() => setImportPreview(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
-              <button onClick={exportData} className="px-4 py-2 text-sm border border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg">先导出当前数据</button>
+              {!loadError && <button onClick={exportData} className="px-4 py-2 text-sm border border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg">先导出当前数据</button>}
               <button onClick={confirmImport} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认覆盖并导入</button>
             </div>
           </div>
@@ -969,45 +1059,25 @@ function OperationPageHeader({ tab, setTab }) {
   );
 }
 
-function DataStaleNotice({ latestMonth, lagMonths, setTab }) {
+function DataStatusNotice({ latestMonth, lagMonths, isDraft, pendingCount, reviewRequired, monthlyAction, setTab }) {
   return (
     <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex items-start gap-2 flex-1">
           <CalendarClock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
           <div>
-            <div className="text-sm font-semibold text-amber-800">数据已滞后 {lagMonths} 个月</div>
-            <p className="text-xs text-amber-700 mt-1">当前总览和家庭目标仍基于 {latestMonth} 的记录，建议先完成最新月份的月度结账，再判断当前资金压力。</p>
+            <div className="text-sm font-semibold text-amber-800">{reviewRequired ? '历史调整后需要复核' : isDraft ? '最新月份仍在录入中' : monthlyAction?.title}</div>
+            <p className="text-xs text-amber-700 mt-1">当前分析基于 {latestMonth} {isDraft ? `的录入中预览，还有 ${pendingCount} 项待处理。` : '的记录。'}{lagMonths > 0 ? ` 数据已滞后 ${lagMonths} 个月。` : ''}{reviewRequired ? ' 请重新编辑、核对并再次结账，刷新目标快照。' : !isDraft ? monthlyAction?.detail : ' 完成结账后才会锁定结果。'}</p>
           </div>
         </div>
-        <button onClick={() => setTab('closing')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700">去更新数据</button>
-      </div>
-    </div>
-  );
-}
-
-function DraftPreviewNotice({ latestMonth, pendingCount, setTab }) {
-  return (
-    <div role="status" className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex items-start gap-2 flex-1">
-          <CalendarClock className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
-          <div>
-            <div className="text-sm font-semibold text-indigo-800">最新月份仍在录入中</div>
-            <p className="text-xs text-indigo-700 mt-1">
-              当前总览、年度小结和家庭目标基于 {latestMonth} 的录入中预览，完成结账后才会锁定为本月最终结果。
-              {pendingCount > 0 ? ` 还有 ${pendingCount} 项待处理。` : '目前没有待处理项。'}
-            </p>
-          </div>
-        </div>
-        <button onClick={() => setTab('closing')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">去完成结账</button>
+        <button onClick={() => setTab('closing')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700">{reviewRequired ? '去复核结账' : monthlyAction?.button || '去完成结账'}</button>
       </div>
     </div>
   );
 }
 
 // ---------- 总览 ----------
-function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab, monthMeta, lastExportAt, monthlyAction }) {
+function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab, monthMeta, lastExportAt }) {
   const [expandCat, setExpandCat] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   if (!latest) return (
@@ -1172,8 +1242,8 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   if (missingLatestAccounts.length > 0) trustItems.push({ title: '启用账户未填写', detail: `${missingLatestAccounts.length} 个账户在 ${latest.month} 没有完整数值。`, tone: 'rose' });
   if (unannotatedLargeDrivers.length > 0) trustItems.push({ title: '大额变化未标注', detail: `${unannotatedLargeDrivers.length} 个账户变化超过 1 万元但尚未填写原因。`, tone: 'amber' });
   if (Math.abs(latest.nonCashChange) > Math.abs(latest.saved) && Math.abs(latest.nonCashChange) >= 10000) trustItems.push({ title: '非收支变化较大', detail: `非收支变化 ${yuanSign(latest.nonCashChange)}，绝对值超过本月结余。`, tone: 'amber' });
-  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '余额连续三个月不变', detail: `${unchangedBalanceAccounts.length} 个现金、投资或负债账户连续三个月相同，请确认不是忘记更新。`, tone: 'slate' });
-  if (monthMeta[latest.month]?.reopenedAt) trustItems.push({ title: '已结账月份重新编辑过', detail: `${latest.month} 曾在结账后重新打开，请确认修正结果。`, tone: 'amber' });
+  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '最近三条记录余额不变', detail: `${unchangedBalanceAccounts.length} 个现金、投资或负债账户最近三条记录相同，请确认不是忘记更新；记录不一定连续。`, tone: 'slate' });
+  if (monthMeta[latest.month]?.reviewRequired) trustItems.push({ title: '历史调整后需要复核', detail: `${latest.month} 的增长拆解或目标快照可能受历史调整影响，请重新编辑并结账。`, tone: 'amber' });
   if (duplicateGoalAccounts.length > 0) trustItems.push({ title: '目标资金重复计算', detail: `${duplicateGoalAccounts.length} 个资产账户同时关联多个目标。`, tone: 'rose' });
   if (missingGoalAccounts.length > 0) trustItems.push({ title: '目标关联账户已不存在', detail: `${missingGoalAccounts.length} 个目标资金账户无法在账户管理中找到。`, tone: 'rose' });
   if (invalidGoalSourceLinks.length > 0) trustItems.push({ title: '目标资金来源不符合口径', detail: `${invalidGoalSourceLinks.length} 个关联账户已不计入目标进度，请到家庭目标中重新选择资金来源。`, tone: 'rose' });
@@ -1271,20 +1341,6 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           </div>
         </section>
       </div>
-
-      {monthlyAction && (
-        <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <div className="flex-1">
-              <div className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
-                <CalendarClock className="w-5 h-5 text-indigo-600" />{monthlyAction.title}
-              </div>
-              <p className="text-xs text-indigo-700 mt-1">{monthlyAction.detail}</p>
-            </div>
-            <button onClick={() => setTab('closing')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">{monthlyAction.button}</button>
-          </div>
-        </div>
-      )}
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center gap-2 font-semibold mb-2">
@@ -1715,7 +1771,7 @@ function AssetStructureTooltip({ active, payload, label }) {
 }
 
 // ---------- 账户管理 ----------
-function Accounts({ accounts, setAccounts, setRecords, latest, records, monthStatus }) {
+function Accounts({ accounts, setAccounts, setRecords, latest, records, monthStatus, setMonthMeta }) {
   const [modal, setModal] = useState(null);
   const [confirm, setConfirm] = useState(null);
   const [showInactive, setShowInactive] = useState(false);
@@ -1723,6 +1779,13 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
   const inactive = accounts.filter((a) => !isActive(a));
 
   const remove = (id) => {
+    setMonthMeta((prev) => {
+      const earliest = Object.keys(records).filter((month) => Object.hasOwn(records[month], id)).sort()[0];
+      const cleaned = cleanAccountMeta(prev, id);
+      const next = earliest ? markLaterMonthsForReview(cleaned, earliest, records, monthStatus) : cleaned;
+      if (earliest && monthStatus[earliest] === 'closed') next[earliest] = { ...(next[earliest] || {}), reviewRequired: true, reviewReason: '账户删除改变了历史统计' };
+      return next;
+    });
     setAccounts((prev) => prev.filter((a) => a.id !== id));
     setRecords((prev) => {
       const copy = { ...prev };
@@ -1742,6 +1805,7 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
       return exists ? prev.map((a) => (a.id === acc.id ? acc : a)) : [...prev, acc];
     });
     if (acc.type === 'expense' && acc.isFixed && latest?.month && monthStatus[latest.month] !== 'closed') {
+      setMonthMeta((prev) => ({ ...prev, [latest.month]: cleanAccountMeta({ [latest.month]: prev[latest.month] || {} }, acc.id, true)[latest.month] }));
       setRecords((prev) => ({
         ...prev,
         [latest.month]: { ...prev[latest.month], [acc.id]: Number(acc.fixedAmount) || 0 },
@@ -2186,6 +2250,9 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   };
   const setAmountValue = (account, rawValue) => {
     if (!sel || isClosed || !account) return;
+    if ((rawValue === '' || isValidAmountText(rawValue)) && String(rec[account.id] ?? '') !== rawValue) {
+      setMonthMeta((prev) => markLaterMonthsForReview(prev, sel, records, monthStatus));
+    }
     setAmountDrafts((prev) => ({ ...prev, [account.id]: rawValue }));
     persistAmountDraft(account, rawValue);
     setAmountErrors((prev) => {
@@ -2269,11 +2336,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       else if (a.type === 'expense' && a.isFixed) prefill[a.id] = a.fixedAmount;
       else prefill[a.id] = 0;
     });
-    const inheritedBalanceIds = last ? activeAccounts.filter((a) => a.type === 'asset' || a.type === 'liability').map((a) => a.id) : [];
+    const inheritedBalanceIds = activeAccounts.filter((a) => a.type === 'asset' || a.type === 'liability').map((a) => a.id);
     const initialFlowIds = activeAccounts.filter(isTrackedFlowAccount).map((a) => a.id);
     setRecords((prev) => ({ ...prev, [nm]: prefill }));
     setMonthStatus((prev) => ({ ...prev, [nm]: 'draft' }));
-    setMonthMeta((prev) => ({ ...prev, [nm]: { ...(prev[nm] || {}), inheritedBalanceIds, reviewedBalanceIds: [], initialFlowIds, reviewedFlowIds: [] } }));
+    setMonthMeta((prev) => ({ ...markLaterMonthsForReview(prev, nm, records, monthStatus), [nm]: { ...(prev[nm] || {}), inheritedBalanceIds, reviewedBalanceIds: [], initialFlowIds, reviewedFlowIds: [] } }));
     setSel(nm);
     setNewMonth(nextMonth(nm));
   };
@@ -2290,7 +2357,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       return copy;
     });
     setMonthMeta((prev) => {
-      const copy = { ...prev };
+      const copy = markLaterMonthsForReview(prev, m, records, monthStatus);
       delete copy[m];
       return copy;
     });
@@ -2335,7 +2402,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
     && inheritedBalanceIds.includes(account.id) && !reviewedBalanceIds.includes(account.id));
   const pendingFlowAccounts = activeAccounts.filter((account) => isTrackedFlowAccount(account)
     && initialFlowIds.includes(account.id) && !reviewedFlowIds.includes(account.id));
-  const pendingAmountIds = Object.keys(currentMonthMeta.pendingAmountDrafts || {});
+  const pendingAmountIds = Object.keys(currentMonthMeta.pendingAmountDrafts || {}).filter((id) => accounts.some((account) => account.id === id && isActive(account)));
   const pendingAmountAccounts = activeAccounts.filter((account) => pendingAmountIds.includes(account.id));
   const pendingInputAccounts = Array.from(new Map([...pendingBalanceAccounts, ...pendingFlowAccounts, ...pendingAmountAccounts].map((account) => [account.id, account])).values());
   const pendingInputCountByMember = Object.fromEntries(closingMembers.map((member) => [member, pendingInputAccounts.filter((account) => account.member === member).length]));
@@ -2374,6 +2441,13 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   }
 
   const closeMonth = () => {
+    setMonthMeta((prev) => {
+      const next = { ...(prev[sel] || {}) };
+      delete next.reviewRequired;
+      delete next.reviewReason;
+      delete next.reopenedAt;
+      return { ...prev, [sel]: next };
+    });
     const snapshots = {};
     goals.forEach((goal) => {
       snapshots[goal.id] = {
@@ -2560,18 +2634,19 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           {!isClosed && pendingInputAccounts.length > 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <span className="w-4 h-4 rounded border border-amber-300 bg-amber-50 shrink-0" />
-              <span>橙色输入框表示本月尚未处理：资产、负债沿用{previousPeriodLabel}，收入、非固定支出初始为 0。当前还有 {pendingInputAccounts.length} 项，结账时会统一确认。</span>
+              <span>橙色输入框表示本月尚未处理：资产、负债{previousMonth ? `沿用${previousPeriodLabel}` : '首月初始为 0'}，收入、非固定支出初始为 0。当前还有 {pendingInputAccounts.length} 项，结账时会统一确认。</span>
             </div>
           )}
 
           {isClosed && (
             <div className="flex items-center gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
               <Lock className="w-5 h-5 text-emerald-600 shrink-0" />
-              <p className="text-sm text-emerald-800 flex-1">本月金额和结账结果已锁定；变化原因和行动复盘仍可补充，不会改变金额。</p>
+              <p className="text-sm text-emerald-800 flex-1">{currentMonthMeta.reviewRequired ? '本月金额仍锁定，历史调整后的分析结果需要复核。' : '本月金额和结账结果已锁定；变化原因和行动复盘仍可补充，不会改变金额。'}</p>
               <button onClick={() => setReopenCheckOpen(true)} className="text-sm px-3 py-2 bg-white border border-emerald-300 text-emerald-700 rounded-lg whitespace-nowrap">重新编辑</button>
             </div>
           )}
 
+          {currentMonthMeta.reviewRequired && <p role="status" className="text-sm text-amber-800 border border-amber-200 bg-amber-50 rounded-lg p-3">需要复核：{currentMonthMeta.reviewReason}。增长拆解可能变化，目标快照尚未刷新。请重新编辑、核对后再次结账。</p>}
           <div className="grid grid-cols-3 gap-1 bg-white rounded-xl p-1 border border-slate-200 sm:hidden">
             {closingMembers.map((member) => (
               <button key={member} onClick={() => setActiveMember(member)}
@@ -2626,7 +2701,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                                 )}
                               </div>
                               <div className="w-32 shrink-0">
-                                <input data-closing-account-id={a.id} type="text" inputMode="decimal" aria-label={`${member} ${a.name}${isPendingInput ? ' 待处理' : ''}`} aria-invalid={amountError ? 'true' : undefined} aria-describedby={amountError ? errorId : undefined} title={isPendingBalance ? `沿用${previousPeriodLabel}金额，结账时将统一确认` : isPendingFlow ? '本月仍为初始值 0，结账时将统一确认' : isPendingAmount ? '本次修改尚未确认，离开时会保留草稿' : undefined} value={inputValue}
+                                <input data-closing-account-id={a.id} type="text" inputMode="decimal" aria-label={`${member} ${a.name}${isPendingInput ? ' 待处理' : ''}`} aria-invalid={amountError ? 'true' : undefined} aria-describedby={amountError ? errorId : undefined} title={isPendingBalance ? previousMonth ? `沿用${previousPeriodLabel}金额，结账时将统一确认` : '首月余额初始为 0，结账时将统一确认' : isPendingFlow ? '本月仍为初始值 0，结账时将统一确认' : isPendingAmount ? '本次修改尚未确认，离开时会保留草稿' : undefined} value={inputValue}
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e) => setAmountValue(a, e.target.value)} onBlur={(e) => finishAmountEdit(a, e.target.value)}
                                   disabled={isClosed}
@@ -2653,12 +2728,12 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           })}
 
           <p className="text-xs text-slate-400 bg-white rounded-lg px-3 py-2 border border-slate-200">
-            {isClosed ? '本月金额和结账结果已锁定，变化原因和行动复盘仍可补充，不会改变金额；需要修正金额时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
+            {currentMonthMeta.reviewRequired ? '历史调整影响了本月分析结果，请重新编辑、核对后再次结账。' : isClosed ? '本月金额和结账结果已锁定，变化原因和行动复盘仍可补充，不会改变金额；需要修正金额时，请先点「重新编辑」。' : sel === months[months.length - 1] ? '最新月份的固定支出修改后，会同步为以后月份的默认金额。' : '历史月份的修改只影响当月，不会改变以后月份的默认金额。'}
           </p>
 
           {selectedSummary?.netChange != null && (
             <div className="bg-white rounded-xl p-4 border border-slate-200">
-              <div className="text-sm font-medium text-slate-700 mb-1">本月净资产变化{isClosed ? '（结果已锁定）' : ''}</div>
+              <div className="text-sm font-medium text-slate-700 mb-1">本月净资产变化{currentMonthMeta.reviewRequired ? '（金额锁定，结果待复核）' : isClosed ? '（结果已锁定）' : ''}</div>
               <p className="text-sm text-slate-600">
                 <span className="font-medium text-indigo-600">{yuanSign(selectedSummary.netChange)}</span>
                 {' = '}结余 <span className="text-emerald-600">{yuanSign(selectedSummary.saved)}</span>
@@ -2687,6 +2762,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             </div>
           )}
 
+          {accounts.some((account) => !isActive(account) && hasRecordValue(rec, account.id)) && <details className="bg-white border border-slate-200 rounded-xl p-4">
+            <summary className="text-sm text-slate-600 cursor-pointer">停用账户的历史金额（仍计入本月合计）</summary>
+            <div className="mt-2 divide-y divide-slate-100">{accounts.filter((account) => !isActive(account) && hasRecordValue(rec, account.id)).map((account) => <div key={account.id} className="flex justify-between gap-3 py-2 text-sm"><span>{account.member} · {account.name}</span><span className="shrink-0">{fmtYuan(recordAmount(rec, account.id))}</span></div>)}</div>
+          </details>}
           {!isClosed && (
             <button onClick={() => setCloseCheckOpen(true)} className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl py-3 text-sm font-medium">
               <Lock className="w-4 h-4" />完成本月结账
@@ -2768,6 +2847,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 <tr key={s.month} className={`border-t border-slate-50 ${s.month === sel ? 'bg-indigo-50' : 'hover:bg-slate-50'}`}>
                   <td className="px-3 py-1">
                     <button type="button" onClick={() => setSel(s.month)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); setSel(s.month); } }} aria-current={s.month === sel ? 'true' : undefined} className="min-h-10 rounded-lg px-2 text-indigo-600 font-medium hover:bg-indigo-100 focus:outline-none focus:ring-2 focus:ring-indigo-200">{s.month}</button>
+                    {monthMeta[s.month]?.reviewRequired && <span className="block text-xs text-amber-600">需要复核</span>}
                   </td>
                   <td className="px-3 py-2 text-right">{fmtWan(s.nw)}</td>
                   <td className="px-3 py-2 text-right text-emerald-600">{wanSign(s.saved)}</td>
@@ -2790,6 +2870,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             </div>
             <p className="text-sm text-slate-600 mb-2">确定删除 <span className="font-medium">{deleteMonth}</span> 的全部结账数据吗？</p>
             <p className="text-xs text-rose-600 bg-rose-50 rounded-lg p-2.5 mb-4">删除后，该月份将从净资产趋势、年度统计和历史记录中移除，且无法恢复。</p>
+            {months.some((month) => month > deleteMonth && monthStatus[month] === 'closed') && <p className="text-xs text-amber-700 mb-3">后续已结账月份将标记为「需要复核」，增长拆解会重新计算；目标快照需再次结账刷新。</p>}
             <div className="flex gap-2 justify-end">
               <button data-dialog-autofocus onClick={() => setDeleteMonth(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
               <button onClick={() => delMonth(deleteMonth)} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
@@ -2811,6 +2892,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
           <div ref={reopenDialogRef} role="dialog" aria-modal="true" aria-labelledby="reopen-month-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
             <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-amber-600" /><h3 id="reopen-month-title" className="font-semibold">重新编辑 {sel}？</h3></div>
             <p className="text-sm text-slate-600 mb-4">重新编辑会打开本月金额并将结账状态改回「录入中」，已保存的简报、行动和目标快照会保留；修改完成后请再次结账。</p>
+            {months.some((month) => month > sel && monthStatus[month] === 'closed') && <p className="text-xs text-amber-700 mb-3">修改历史金额后，后续已结账月份会标记为「需要复核」，请按月份顺序核对并再次结账。</p>}
             <div className="flex gap-2 justify-end"><button data-dialog-autofocus onClick={() => setReopenCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={reopenMonth} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg">确认重新编辑</button></div>
           </div>
         </div>
@@ -2838,11 +2920,11 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             )}
             {pendingBalanceAccounts.length > 0 && (
               <div className="mb-4">
-                <p className="text-sm font-medium text-amber-700 mb-2">以下余额仍沿用上月，本月没有重新输入：</p>
+                <p className="text-sm font-medium text-amber-700 mb-2">{previousMonth ? `以下余额仍沿用${previousPeriodLabel}，本月没有重新输入：` : '以下资产、负债仍为首月初始值 0，尚未重新输入：'}</p>
                 <ul className="space-y-1 text-sm text-amber-800 bg-amber-50 rounded-lg p-3">
                   {pendingBalanceAccounts.map((account) => <li key={account.id}>• {account.member} · {account.name}：{fmtYuan(rec[account.id] || 0)}</li>)}
                 </ul>
-                <p className="text-xs text-slate-500 mt-2">确认结账后，系统会把这些余额视为本月已核对且没有变化。</p>
+                <p className="text-xs text-slate-500 mt-2">{previousMonth ? '确认结账后，系统会把这些余额视为本月已核对且没有变化。' : '确认结账后，系统会把这些资产、负债视为月末余额确实为 0。'}</p>
               </div>
             )}
             {pendingFlowAccounts.length > 0 && (
@@ -2874,7 +2956,7 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
 }
 
 // ---------- 家庭目标 ----------
-function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records, latest, series }) {
+function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records, latest, series, monthMeta }) {
   const emptyDraft = { name: '', targetAmount: '', currentAmount: '', targetDate: '', priority: 'medium', goalType: 'standard', coverageMonthsTarget: '6', linkedAccountIds: [] };
   const [draft, setDraft] = useState(emptyDraft);
   const [editingId, setEditingId] = useState(null);
@@ -3087,6 +3169,8 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
               .filter((snapshot) => snapshot.currentAmount != null);
             const latestSnapshot = history[history.length - 1];
             const previousSnapshot = history[history.length - 2];
+            const sourceChanged = previousSnapshot && latestSnapshot && JSON.stringify([...(previousSnapshot.linkedAccountIds || [])].sort()) !== JSON.stringify([...(latestSnapshot.linkedAccountIds || [])].sort());
+            const planChanged = previousSnapshot && latestSnapshot && (previousSnapshot.targetDate !== latestSnapshot.targetDate || Number(previousSnapshot.targetAmount) !== Number(latestSnapshot.targetAmount));
             let actualIncrease = null, plannedIncrease = null;
             if (latestSnapshot && previousSnapshot) {
               actualIncrease = Number(latestSnapshot.currentAmount) - Number(previousSnapshot.currentAmount);
@@ -3114,14 +3198,16 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
               </div>
               <div className="mt-3 pt-3 border-t border-slate-100">
                 <div className="text-xs font-medium text-slate-500 mb-1">目标进度历史</div>
+                {history.some((snapshot) => monthMeta[snapshot.month]?.reviewRequired) && <p className="text-xs text-amber-700 mb-2">历史调整后部分目标快照待复核，请在对应月份再次结账后再作比较。</p>}
                 {history.length === 0 ? <p className="text-xs text-slate-400">完成月度结账后开始记录目标快照。</p>
                   : history.length === 1 ? <p className="text-xs text-slate-500">{latestSnapshot.month} 已记录首个快照：{fmtWan(latestSnapshot.currentAmount)}</p>
                   : <>
                     <div className="grid grid-cols-3 gap-2 text-center">
-                      <MiniStat label="本期实际增加" value={wanSign(actualIncrease)} c={actualIncrease >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
+                      <MiniStat label="本期余额变化" value={wanSign(actualIncrease)} c={actualIncrease >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
                       <MiniStat label="本期计划增加" value={plannedIncrease == null ? '目标已到期' : fmtWan(plannedIncrease)} c="text-indigo-600" />
-                      <MiniStat label="执行状态" value={plannedIncrease == null ? '需重设日期' : actualIncrease >= plannedIncrease ? '达到计划' : `落后 ${fmtWan(plannedIncrease - actualIncrease)}`} c={plannedIncrease != null && actualIncrease >= plannedIncrease ? 'text-emerald-600' : 'text-rose-600'} />
+                      <MiniStat label="余额进度对比" value={sourceChanged ? '来源已变化' : planChanged ? '计划已变化' : plannedIncrease == null ? '需重设日期' : actualIncrease >= plannedIncrease ? '达到参考值' : `低于参考 ${fmtWan(plannedIncrease - actualIncrease)}`} c={sourceChanged || planChanged ? 'text-slate-500' : plannedIncrease != null && actualIncrease >= plannedIncrease ? 'text-emerald-600' : 'text-rose-600'} />
                     </div>
+                    <p className="text-xs text-slate-400 mt-2">余额变化包含投资涨跌、估值和资金来源调整，不等于本期实际投入；对比仅作计划参考。</p>
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
                       {history.slice(-4).map((snapshot, index, shown) => {
                         const prior = index > 0 ? shown[index - 1] : null;
@@ -3162,12 +3248,12 @@ function Annual({ annual }) {
     收入: +(a.income / 10000).toFixed(1),
     支出: +(a.expenses / 10000).toFixed(1),
     期末净资产: +(a.netWorth / 10000).toFixed(1),
-    攒的: +(a.saved / 10000).toFixed(1),
+    攒的: +(a.growthSaved / 10000).toFixed(1),
     非收支变化: +(a.nonCashChange / 10000).toFixed(1),
   }));
 
   const latestY = annual[annual.length - 1];
-  const savedAbs = Math.abs(latestY.saved);
+  const savedAbs = Math.abs(latestY.growthSaved);
   const nonCashChangeAbs = Math.abs(latestY.nonCashChange);
   const barTotal = savedAbs + nonCashChangeAbs || 1;
   const annualTooltipLabel = (label, payload) => {
@@ -3186,15 +3272,15 @@ function Annual({ annual }) {
         </div>
         {latestY.missingMonths?.length > 0 && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-2">该区间缺少月份：{latestY.missingMonths.join('、')}。年度汇总按已记录月份计算。</p>}
         {latestY.yoyAbs == null ? (
-          <p className="text-sm text-slate-500">首个记账区间，暂无上年末数据。区间净资产变化 {wanSign(latestY.growth)}。</p>
+          <p className="text-sm text-slate-500">缺少期初数据，以 {latestY.baselineMonth} 的月末净资产为起点。之后可确认的净资产变化 {wanSign(latestY.growth)}。首月收支仍计入年度收支汇总，不计入增长拆解。</p>
         ) : (
           <>
             <p className="text-sm text-slate-600 mb-1">
               期末净资产 <span className="font-bold text-indigo-600">{fmtWan(latestY.netWorth)}</span>，
-              较上年末 <span className={latestY.yoyAbs >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>{wanSign(latestY.yoyAbs)}（{pctSign(latestY.yoyPct)}）</span>
+              较 {latestY.comparisonYear} 年末 <span className={latestY.yoyAbs >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>{wanSign(latestY.yoyAbs)}（{pctSign(latestY.yoyPct)}）</span>
             </p>
             <p className="text-sm text-slate-600 mb-2">
-              其中：自己攒的 <span className="text-emerald-600 font-medium">{wanSign(latestY.saved)}</span> ＋ 非收支变化 <span className="text-amber-600 font-medium">{wanSign(latestY.nonCashChange)}</span>
+              其中：自己攒的 <span className="text-emerald-600 font-medium">{wanSign(latestY.growthSaved)}</span> ＋ 非收支变化 <span className="text-amber-600 font-medium">{wanSign(latestY.nonCashChange)}</span>
             </p>
             <div className="flex h-3 rounded-full overflow-hidden bg-slate-100">
               <div className="bg-emerald-500" style={{ width: `${(savedAbs / barTotal) * 100}%` }} />
@@ -3207,7 +3293,7 @@ function Annual({ annual }) {
           </>
         )}
         <p className="text-xs text-slate-400 mt-2 flex items-start gap-1">
-          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />“攒的＋非收支变化”是对净资产变化的近似拆解；非收支变化可能包含投资涨跌、估值和余额调整。
+          <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />增长拆解仅包含有此前余额基线的记录；首个记录的收支保留在收支汇总中。非收支变化可能包含投资涨跌、估值和余额调整。
         </p>
       </div>
 
@@ -3286,7 +3372,7 @@ function Annual({ annual }) {
             <tr className="text-slate-400 border-b border-slate-100">
               <th className="text-left py-2 font-medium sticky left-0 bg-white">统计区间</th>
               <th className="text-right py-2 px-3 font-medium">期末净资产</th>
-              <th className="text-right py-2 px-3 font-medium">较上年末</th>
+              <th className="text-right py-2 px-3 font-medium">较此前年末</th>
               <th className="text-right py-2 px-3 font-medium">区间增长</th>
               <th className="text-right py-2 px-3 font-medium">收入</th>
               <th className="text-right py-2 px-3 font-medium">支出</th>
@@ -3304,7 +3390,7 @@ function Annual({ annual }) {
               <tr key={a.year} className="border-b border-slate-50">
                 <td className="py-2 font-medium sticky left-0 bg-white">{a.periodShortLabel}</td>
                 <td className="text-right px-3 font-medium">{fmtWan(a.netWorth)}</td>
-                <td className={`text-right px-3 ${a.yoyPct == null ? 'text-slate-400' : a.yoyPct >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{a.yoyPct == null ? '首年' : pctSign(a.yoyPct)}</td>
+                <td className={`text-right px-3 ${a.yoyAbs == null ? 'text-slate-400' : a.yoyAbs >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{a.yoyAbs == null ? '无期初基线' : `${a.comparisonYear}年末：${a.yoyPct == null ? wanSign(a.yoyAbs) : pctSign(a.yoyPct)}`}</td>
                 <td className="text-right px-3 text-indigo-600">{wanSign(a.growth)}</td>
                 <td className="text-right px-3 text-emerald-600">{fmtWan(a.income)}</td>
                 <td className="text-right px-3 text-amber-600">{fmtWan(a.expenses)}</td>
@@ -3319,7 +3405,7 @@ function Annual({ annual }) {
             ))}
           </tbody>
         </table>
-        <p className="text-xs text-slate-400 mt-2">「较上年末」为本统计期末净资产较上一年度最后一条记录的变化；首个记账区间因缺少上年末数据，仅展示当前区间结果。</p>
+        <p className="text-xs text-slate-400 mt-2">「较此前年末」比较此前有记录年份的最后一条余额，不是同期同比。首条记录无期初基线，只保留收支统计；区间增长从该记录的月末余额起算。</p>
       </div>
     </div>
   );
