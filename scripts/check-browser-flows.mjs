@@ -87,12 +87,18 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     const firstMonth = await createMonth();
     assert.equal((await data()).monthMeta[firstMonth].inheritedBalanceIds.length, 2);
     assert.equal(await button('新建月份').isEnabled(), false);
+    await button('总览').click(); await observe();
+    assert.match(lastSnapshot, /缺少有效支出数据，暂无法估算/);
+    await button('展开深度分析').click(); await observe();
+    assert.doesNotMatch(lastSnapshot, /已覆盖目标|已达成 🎉/);
+    await openMenu('月度结账');
     if (width === 390) { await p.getByRole('button', { name: /^共同/ }).click(); await observe(); }
     for (const [name, value] of [['验收现金', 100000], ['验收负债', 20000], ['验收收入', 10000], ['验收支出', 5000]]) await editAmount(name, value);
     await closeMonth();
     assert.equal((await data()).monthStatus[firstMonth], 'closed');
     assert.equal((await data()).goalHistory[firstMonth].goal.currentAmount, 100000);
     assert.equal(await button('新建月份').isEnabled(), true);
+    const firstBackup = await download(() => openMenu('导出数据'));
     await tab.reload(); await unlock(); await openMenu('月度结账');
     assert.equal((await data()).records[firstMonth].cash, 100000);
     assert.equal((await data()).monthStatus[firstMonth], 'closed');
@@ -100,6 +106,18 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     if (width === 390) { await p.getByRole('button', { name: /^共同/ }).click(); await observe(); }
     for (const [name, value] of [['验收现金', 98000], ['验收负债', 19000], ['验收收入', 0], ['验收支出', 2000]]) await editAmount(name, value);
     await closeMonth(); await layout();
+    const beforeOlderImport = await stored();
+    await upload(firstBackup);
+    assert.match(await observe(), /导入文件缺少当前的 1 个月度记录/);
+    assert.ok(lastSnapshot.includes(`当前页面记录截至：`) && lastSnapshot.includes(secondMonth) && lastSnapshot.includes(firstMonth));
+    await viewport.set({ width, height: 400 });
+    const confirmRect = await button('确认覆盖并导入').evaluate(element => {
+      const rect = element.getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, height: innerHeight };
+    });
+    assert.ok(confirmRect.top >= 0 && confirmRect.bottom <= confirmRect.height, '短视口导入确认按钮不可达');
+    await button('取消').click(); await observe();
+    assert.equal(await stored(), beforeOlderImport, '取消旧备份导入不能丢失新月份');
+    await viewport.set({ width, height: 900 });
 
     await selectMonth(firstMonth); await reopen(); await editAmount('验收现金', 90000); await closeMonth();
     assert.equal((await data()).monthMeta[secondMonth].reviewRequired, true);
@@ -153,7 +171,7 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     assert.equal(errors.length, 0, JSON.stringify(errors));
     const screenshot = path.join(output, `finance-${width}.jpg`);
     await fs.writeFile(screenshot, await tab.screenshot({ fullPage: false }));
-    return { width, passed: ['录入结账与刷新恢复', '历史复核与目标快照', '导出导入与取消保护', '非法导入保护', '损坏原文保留与备份恢复'], screenshot };
+    return { width, passed: ['录入结账与刷新恢复', '零支出不判断财务自由达成', '历史复核与目标快照', '旧备份差异预览与短视口确认', '导出导入与取消保护', '非法导入保护', '损坏原文保留与备份恢复'], screenshot };
   } catch (error) {
     try { await observe(); } catch {}
     throw new Error(`${error.message}\n验收页面状态：\n${lastSnapshot}`, { cause: error });
@@ -248,6 +266,19 @@ export async function runAuditFlows(browser, { baseUrl, password, width }) {
 
     await review.click('家庭目标');
     assert.match(await review.observe(), /保障月数不足/);
+    const linkedGoalBefore = (await review.data()).goals.find(goal => goal.id === 'review_linked_goal');
+    await review.click('编辑 验收关联目标当前计划');
+    assert.equal(await review.p.locator('#goal-currentAmount').evaluate(input => input.value), '50000');
+    await review.p.getByRole('checkbox', { name: /共同 · 验收基金/ }).uncheck(); await review.observe();
+    assert.equal(await review.p.locator('#goal-currentAmount').evaluate(input => input.value), '50000');
+    assert.equal(await review.p.locator('#goal-currentAmount').isEnabled(), true);
+    assert.match(await review.observe(), /已转为手动金额，请核对/);
+    await review.click('取消');
+    assert.deepEqual((await review.data()).goals.find(goal => goal.id === 'review_linked_goal'), linkedGoalBefore);
+    await review.click('编辑 验收关联目标当前计划');
+    await review.p.getByRole('checkbox', { name: /共同 · 验收基金/ }).uncheck(); await review.observe();
+    await review.click('更新目标');
+    assert.equal((await review.data()).goals.find(goal => goal.id === 'review_linked_goal').currentAmount, 50000);
     await review.click('复核保障金额');
     assert.equal(await review.p.locator('#goal-targetAmount').evaluate(input => input.value), '60000');
     await review.click('使用建议金额');
@@ -258,17 +289,52 @@ export async function runAuditFlows(browser, { baseUrl, password, width }) {
     assert.equal(await review.p.locator('#goal-currentAmount').isEnabled(), false);
     await review.click('解除已删除资金来源 review_deleted_source');
     assert.equal(await review.p.locator('#goal-currentAmount').isEnabled(), true);
+    assert.equal(await review.p.locator('#goal-currentAmount').evaluate(input => input.value), '0');
     await review.fill('#goal-currentAmount', 5000); await review.click('更新目标');
     const repairedGoal = (await review.data()).goals.find(goal => goal.id === 'review_missing_goal');
     assert.deepEqual(repairedGoal.linkedAccountIds, []); assert.equal(repairedGoal.currentAmount, 5000);
     await checkLayout(review);
-    passed.push('失效资金来源解除与备用金保障不足表达');
+    passed.push('目标转手动保留可见余额与取消保护', '失效资金来源解除与备用金保障不足表达');
     const screenshot = path.join(output, `audit-${width}.jpg`);
     await fs.writeFile(screenshot, await review.tab.screenshot({ fullPage: false }));
     await review.menu('导出数据');
     await review.p.locator('#acceptance-download').waitFor({ state: 'visible', timeoutMs: 10000 });
     const backup = path.join(output, 'review-backup.json');
     await fs.writeFile(backup, await review.p.evaluate(() => document.documentElement.dataset.acceptanceDownload));
+
+    await review.menu('月度结账');
+    await review.p.getByLabel('查看已有月份').selectOption('2026-03'); await review.observe();
+    await review.click('补录当月账户');
+    assert.match(await review.observe(), /请先「重新编辑」再补录遗漏账户/);
+    await review.click('重新编辑'); await review.click('确认重新编辑');
+    const beforeBackfill = await review.data();
+    if (!(await review.button('加入本月并填写金额').isVisible())) await review.click('补录当月账户');
+    await review.p.getByLabel('选择补录账户').selectOption('review_inactive'); await review.observe();
+    await review.click('加入本月并填写金额');
+    assert.equal(await review.p.locator('[data-closing-account-id="review_inactive"]').evaluate(input => input.value), '');
+    assert.equal(await review.p.evaluate(() => document.activeElement.getAttribute('data-closing-account-id')), 'review_inactive');
+    await review.click('完成本月结账');
+    assert.equal(await review.button(/^(确认结账|确认以上数值并结账)$/).isEnabled(), false);
+    await review.click('返回并定位');
+    await review.fill('[data-closing-account-id="review_inactive"]', 42000);
+    await review.p.locator('[data-closing-account-id="review_inactive"]').press('Tab'); await review.observe();
+    await review.click('完成本月结账'); await review.click(/^(确认结账|确认以上数值并结账)$/);
+    const afterBackfill = await review.data();
+    assert.equal(afterBackfill.records['2026-03'].review_inactive, 42000);
+    assert.equal(afterBackfill.accounts.find(account => account.id === 'review_inactive').active, false);
+    assert.deepEqual(afterBackfill.records['2026-02'], beforeBackfill.records['2026-02']);
+    await review.p.getByLabel('查看已有月份').selectOption('2026-02'); await review.observe();
+    await review.click('重新编辑'); await review.click('确认重新编辑');
+    await review.click('补录当月账户');
+    await review.p.getByLabel('选择补录账户').selectOption('review_new'); await review.observe();
+    await review.click('加入本月并填写金额');
+    await review.fill('[data-closing-account-id="review_new"]', 0);
+    await review.p.locator('[data-closing-account-id="review_new"]').press('Tab'); await review.observe();
+    await review.click('完成本月结账'); await review.click(/^(确认结账|确认以上数值并结账)$/);
+    assert.equal((await review.data()).records['2026-02'].review_new, 0);
+    assert.equal((await review.data()).monthMeta['2026-03'].reviewRequired, true);
+    await checkLayout(review);
+    passed.push('历史账户显式补录、空值阻断、零值保存及后续复核');
 
     const failure = await session('write-error');
     await failure.click('家庭目标');
@@ -290,6 +356,21 @@ export async function runAuditFlows(browser, { baseUrl, password, width }) {
     assert.doesNotMatch(await failure.observe(), /本机保存未成功/);
     await checkLayout(failure);
     passed.push('保存失败重试、导入失败保留原页及确认窗口');
+
+    await failure.menu('月度结账');
+    const failureMonth = await failure.p.getByLabel('新建月份').evaluate(input => input.value);
+    await failure.click('新建月份');
+    await failure.click('启用验收写入故障');
+    await failure.click('完成本月结账'); await failure.click(/^(确认结账|确认以上数值并结账)$/);
+    assert.notEqual((await failure.data()).monthStatus[failureMonth], 'closed');
+    assert.match(await failure.observe(), /本月显示为已结账，本页当前修改尚未保存/);
+    assert.doesNotMatch(lastSnapshot, /本月已结账并保存到本机/);
+    assert.equal(await failure.button('重试保存结账结果').isVisible(), true);
+    await failure.click('解除验收写入故障'); await failure.click('重试保存结账结果');
+    assert.equal((await failure.data()).monthStatus[failureMonth], 'closed');
+    assert.match(await failure.observe(), /本月已结账并保存到本机/);
+    await checkLayout(failure);
+    passed.push('结账结果未持久化时不报成功、就近重试恢复');
 
     const first = await session('shared');
     const second = await session('shared');

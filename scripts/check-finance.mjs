@@ -50,6 +50,34 @@ assert.equal(run('markLaterMonthsForReview({}, "2026-01", {"2026-03":{}}, {"2026
 assert.equal(run('cleanAccountMeta({"2026-01":{pendingAmountDrafts:{cash:"-"},reviewedBalanceIds:["cash"],changeReasons:{cash:"其他"}}}, "cash")["2026-01"].reviewedBalanceIds.length'), 0);
 assert.equal(run('cleanAccountMeta({"2026-01":{pendingAmountDrafts:{cash:"-"},reviewedBalanceIds:["cash"]}}, "cash", true)["2026-01"].reviewedBalanceIds.length'), 1);
 
+context.currentImportRecords = { '2026-03': { cash: 0 }, '2026-01': { cash: 100 }, '2026-04': { cash: -10 } };
+context.incomingImportRecords = { '2026-02': { cash: 100 }, '2026-01': { cash: 90 } };
+let importComparison = run('getImportRecordComparison(currentImportRecords, incomingImportRecords)');
+assert.equal(importComparison.currentReadable, true);
+assert.equal(importComparison.currentLatestMonth, '2026-04');
+assert.equal(importComparison.importedLatestMonth, '2026-02');
+assert.deepEqual(Array.from(importComparison.removedMonths), ['2026-03', '2026-04'], '预览列出当前存在但备份没有的月份，包括零值和负值记录');
+assert.equal(importComparison.currentMonthCount, 3);
+context.incomingImportRecords['2026-05'] = {};
+importComparison = run('getImportRecordComparison(currentImportRecords, incomingImportRecords)');
+assert.equal(importComparison.importedLatestMonth, '2026-05');
+assert.equal(importComparison.removedMonths.length, 2, '备份截至月份较新也应提示中间缺失月份');
+context.currentImportRecords['2026-06'] = {};
+importComparison = run('getImportRecordComparison(currentImportRecords, incomingImportRecords)');
+assert.equal(importComparison.currentLatestMonth, '2026-06', '比较调用读取当前最新记录而非文件选择时快照');
+assert.equal(importComparison.removedMonths.length, 3);
+assert.equal(run('getImportRecordComparison({}, incomingImportRecords).currentLatestMonth'), null);
+assert.equal(run('getImportRecordComparison({}, incomingImportRecords).currentMonthCount'), 0);
+assert.equal(run('getImportRecordComparison(currentImportRecords, {}).importedLatestMonth'), null);
+assert.equal(run('getImportRecordComparison(currentImportRecords, {}).removedMonths.length'), 4);
+importComparison = run('getImportRecordComparison(null, incomingImportRecords)');
+assert.equal(importComparison.currentReadable, false, '恢复损坏数据时明确不可比较，不使用演示记录');
+assert.equal(importComparison.currentMonthCount, null);
+assert.equal(importComparison.currentLatestMonth, null);
+assert.equal(importComparison.removedMonths.length, 0);
+assert.equal(importComparison.importedLatestMonth, '2026-05');
+assert.equal(run('getImportRecordComparison(incomingImportRecords, incomingImportRecords).removedMonths.length'), 0);
+
 const stored = { raw: null, reads: 0, writes: 0, mode: 'normal' };
 context.localStorage = {
   getItem() { stored.reads += 1; if (stored.mode === 'read-error') throw new Error('读取失败'); return stored.raw; },
@@ -102,6 +130,62 @@ stored.writes = 0;
 assert.equal(vm.runInContext('saveFinancialData(payload, expectedRaw).status', tabB), 'conflict', '旧标签页仅更新导出时间也必须检测到冲突');
 assert.equal(stored.writes, 0);
 assert.equal(stored.raw, updatedRaw);
+
+const sourceGoal = { id: 'source-goal', name: '目标', goalType: 'standard', targetAmount: '200000', currentAmount: '800', targetDate: '2030-12', linkedAccountIds: ['cash'] };
+const goalDraftContext = vm.createContext({
+  draft: { ...sourceGoal, linkedAccountIds: [...sourceGoal.linkedAccountIds] }, emptyDraft: { currentAmount: '', linkedAccountIds: [] },
+  accounts: [{ id: 'cash', type: 'asset', category: 'cash' }, { id: 'other', type: 'asset', category: 'cash' }],
+  latestRec: { cash: 100000, other: 30000 }, changeGoalDraftSource: run('changeGoalDraftSource'),
+  isActive: run('isActive'), getAssetCategory: run('getAssetCategory'),
+  clearFieldError: () => {}, setEditingId: () => {}, setError: () => {}, setFormOpen: () => {},
+  manualAmountNotice: false, goals: [sourceGoal], editingId: 'source-goal', coverageMonthsTarget: 6,
+  requestAnimationFrame: (callback) => callback(), document: { getElementById: () => ({ focus() {} }) },
+  setGoals: () => { throw new Error('切换来源、取消或非法金额不能改写正式目标'); },
+});
+goalDraftContext.assetAccounts = goalDraftContext.accounts;
+goalDraftContext.setDraft = (draft) => { goalDraftContext.draft = draft; };
+goalDraftContext.setManualAmountNotice = (notice) => { goalDraftContext.manualAmountNotice = notice; };
+goalDraftContext.setFieldErrors = (errors) => { goalDraftContext.fieldErrors = errors; };
+vm.runInContext(between('  const changeSource =', '  const saveGoal =').replace('const changeSource', 'this.changeSource'), goalDraftContext);
+vm.runInContext(between('  const cancelEdit =', '  const confirmDelete =').replace('const cancelEdit', 'this.cancelEdit'), goalDraftContext);
+const sourceGoalBefore = JSON.stringify(sourceGoal);
+vm.runInContext('changeSource("cash", false)', goalDraftContext);
+assert.equal(goalDraftContext.draft.currentAmount, '100000', '最后一个正常来源解除时保留当前可见汇总额，而非旧手动金额');
+assert.equal(goalDraftContext.manualAmountNotice, true);
+vm.runInContext('cancelEdit()', goalDraftContext);
+assert.equal(goalDraftContext.manualAmountNotice, false, '取消清除模式切换提示');
+assert.equal(goalDraftContext.draft.currentAmount, '');
+assert.equal(JSON.stringify(sourceGoal), sourceGoalBefore, '取消来源修改保留正式目标');
+goalDraftContext.draft = { ...sourceGoal, linkedAccountIds: ['cash', 'other'] };
+vm.runInContext('changeSource("cash", false)', goalDraftContext);
+assert.deepEqual(Array.from(goalDraftContext.draft.linkedAccountIds), ['other']);
+assert.equal(goalDraftContext.draft.currentAmount, '800', '仍有来源时不改手动草稿，继续自动汇总');
+assert.equal(goalDraftContext.manualAmountNotice, false);
+vm.runInContext('changeSource("other", false)', goalDraftContext);
+assert.equal(goalDraftContext.draft.currentAmount, '30000', '最后解除时使用最后剩余来源当时的余额');
+goalDraftContext.draft = { ...sourceGoal, linkedAccountIds: ['cash'] };
+goalDraftContext.latestRec.cash = 0;
+vm.runInContext('changeSource("cash", false)', goalDraftContext);
+assert.equal(goalDraftContext.draft.currentAmount, '0', '零余额明确带入0，不回退旧值或空值');
+goalDraftContext.draft = { ...sourceGoal, linkedAccountIds: ['deleted'] };
+vm.runInContext('changeSource("deleted", false)', goalDraftContext);
+assert.equal(goalDraftContext.draft.currentAmount, '0', '失效来源解除同样保留切换前显示的零汇总');
+assert.equal(goalDraftContext.manualAmountNotice, true);
+goalDraftContext.draft = { ...sourceGoal, linkedAccountIds: ['cash'] };
+goalDraftContext.latestRec.cash = -100;
+vm.runInContext('changeSource("cash", false)', goalDraftContext);
+assert.equal(goalDraftContext.draft.currentAmount, '-100', '负余额原样带入草稿，由原有提交校验处理');
+vm.runInContext(between('  const saveGoal =', '  const editGoal =').replace('const saveGoal', 'this.saveGoal'), goalDraftContext);
+vm.runInContext('saveGoal()', goalDraftContext);
+assert.equal(goalDraftContext.fieldErrors.currentAmount, '当前已准备金额不能为负数');
+let relinkedGoal;
+goalDraftContext.setGoals = (update) => { relinkedGoal = update(goalDraftContext.goals)[0]; };
+vm.runInContext('changeSource("other", true); saveGoal()', goalDraftContext);
+assert.ok(relinkedGoal, '重新关联正余额来源后不被已隐藏的负数手动草稿阻止保存');
+assert.deepEqual(Array.from(relinkedGoal.linkedAccountIds), ['other']);
+assert.equal(goalDraftContext.fieldErrors.currentAmount, undefined);
+assert.equal(goalDraftContext.manualAmountNotice, false, '恢复自动汇总并保存后清除手动切换提示');
+assert.equal(run('resolveGoalCurrentAmount')(relinkedGoal, goalDraftContext.latestRec, goalDraftContext.accounts), 30000);
 
 context.goalAccounts = [
   { id: 'cash', type: 'asset', category: 'cash', active: false },
@@ -205,6 +289,24 @@ assert.equal(reminder.monthlyAction.title, '建立首个月份');
 assert.equal(reminder.monthlyAction.button, '开始月度结账');
 monthlyContext.accounts = [];
 assert.equal(monthlyState(null).monthlyAction, null, '无账户时不提前显示结账入口');
+
+const fireEstimateContext = vm.createContext({ withdrawalRate: 4, fire: {} });
+const fireDisplayBody = between('  const hasFireExpenseData =', '  const fireScenarios =');
+const fireDisplay = (annualExp, invest = 0, years = 0) => {
+  fireEstimateContext.fire = { annualExp, invest, years, annualSaved: 12000 };
+  return vm.runInContext(`(() => {${fireDisplayBody} return { hasFireExpenseData, yearsText, scenario: projectFireScenario(0.04, 0.02) }; })()`, fireEstimateContext);
+};
+for (const invalidExpense of [undefined, null, 0, -1200, NaN]) {
+  const display = fireDisplay(invalidExpense);
+  assert.equal(display.hasFireExpenseData, false);
+  assert.match(display.yearsText, /缺少有效支出数据/);
+  assert.equal(display.scenario, null, '无有效支出时情景推演不能宣告已覆盖目标');
+}
+assert.match(fireDisplay(12000, 300000, 0).yearsText, /已达成/);
+assert.equal(fireDisplay(12000, 300000, 0).scenario.months, 0);
+assert.match(fireDisplay(12000, 100000, 10).yearsText, /约 10.0 年/);
+assert.ok(fireDisplay(12000, 100000, 10).scenario.months > 0);
+assert.match(fireDisplay(12000, 0, null).yearsText, /按当前储蓄速度暂难达成/);
 
 const annualBody = between('  const annual = useMemo(() => {', '  }, [series]);').replace('  const annual = useMemo(() => {', '');
 context.series = [];
@@ -333,4 +435,70 @@ assert.equal(styleTimers.size, 0);
 assert.doesNotMatch(source, /<script src="https:\/\/cdn\.tailwindcss\.com(?:\/[^\"]*)?"><\/script>/);
 assert.match(source, /if \(loadError\) return;/);
 assert.match(source, /const inheritedBalanceIds = activeAccounts\.filter/);
-console.log('财务回归检查通过：读取与保存保护、多页冲突、导入校验、历史快照与账户、草稿清理、历史复核、月度提醒节奏、首月核对、年度基线与样式加载。');
+const backfillContext = vm.createContext({
+  sel: '2026-01', isClosed: false, preserveMonthAccounts: true, backfillAccountId: 'oldInactive',
+  accounts: [{ id: 'cash', name: '现金', type: 'asset', member: '共同', active: true }, { id: 'oldInactive', name: '停用账户', type: 'asset', member: '老婆', active: false }, { id: 'lateFlow', name: '旧收入', type: 'income', member: '老公', active: true }],
+  records: { '2026-01': { cash: 10 }, '2026-02': { cash: 20 }, '2026-03': { cash: 30 } },
+  monthStatus: { '2026-01': 'draft', '2026-02': 'closed', '2026-03': 'draft' },
+  meta: { '2026-01': { actions: [{ id: 'action', text: '保留行动', done: false }] } }, drafts: {}, errors: {},
+  markLaterMonthsForReview: run('markLaterMonthsForReview'), getClosingAccounts: run('getClosingAccounts'),
+  setBackfillAccountId: () => {}, setBackfillOpen: () => {},
+});
+backfillContext.rec = backfillContext.records['2026-01'];
+backfillContext.setRecords = (update) => { backfillContext.records = update(backfillContext.records); backfillContext.rec = backfillContext.records[backfillContext.sel]; };
+backfillContext.setMonthMeta = (update) => { backfillContext.meta = update(backfillContext.meta); };
+backfillContext.setAmountDrafts = (update) => { backfillContext.drafts = update(backfillContext.drafts); };
+backfillContext.setAmountOriginals = (update) => { backfillContext.originals = update(backfillContext.originals || {}); };
+backfillContext.setAmountErrors = (update) => { backfillContext.errors = update(backfillContext.errors); };
+backfillContext.locateClosingAccount = (id) => { backfillContext.located = id; };
+vm.runInContext(between('  const addHistoricalAccount = () => {', '  const returnToFirstBlocker =').replace('const addHistoricalAccount', 'this.addHistoricalAccount'), backfillContext);
+vm.runInContext('addHistoricalAccount()', backfillContext);
+assert.equal(backfillContext.records['2026-01'].oldInactive, '', '补录必须从空值开始，不能用0冒充已核对');
+assert.equal(backfillContext.meta['2026-01'].pendingAmountDrafts.oldInactive, '');
+assert.equal(backfillContext.meta['2026-01'].actions[0].text, '保留行动');
+assert.equal(backfillContext.meta['2026-02'].reviewRequired, true);
+assert.equal(backfillContext.meta['2026-03'], undefined, '后续草稿月份不新增复核状态');
+assert.equal(backfillContext.records['2026-02'].cash, 20);
+assert.equal(Object.hasOwn(backfillContext.records['2026-02'], 'oldInactive'), false, '补录不写入其他月份');
+assert.equal(backfillContext.accounts[1].active, false, '补录不能重新启用停用账户');
+assert.equal(backfillContext.located, 'oldInactive');
+assert.ok(vm.runInContext('getClosingAccounts(accounts, rec, true).some(account => account.id === "oldInactive")', backfillContext));
+let backfillBefore = JSON.stringify({ records: backfillContext.records, meta: backfillContext.meta });
+vm.runInContext('addHistoricalAccount()', backfillContext);
+assert.equal(JSON.stringify({ records: backfillContext.records, meta: backfillContext.meta }), backfillBefore, '重复加入不能覆盖已有字段');
+backfillContext.backfillAccountId = 'lateFlow';
+backfillContext.isClosed = true;
+vm.runInContext('addHistoricalAccount()', backfillContext);
+assert.equal(JSON.stringify({ records: backfillContext.records, meta: backfillContext.meta }), backfillBefore, '已结账时不能补录');
+backfillContext.isClosed = false;
+backfillContext.preserveMonthAccounts = false;
+vm.runInContext('addHistoricalAccount()', backfillContext);
+assert.equal(JSON.stringify({ records: backfillContext.records, meta: backfillContext.meta }), backfillBefore, '普通新月份不走历史补录入口');
+backfillContext.preserveMonthAccounts = true;
+backfillContext.backfillAccountId = 'missing';
+vm.runInContext('addHistoricalAccount()', backfillContext);
+assert.equal(JSON.stringify({ records: backfillContext.records, meta: backfillContext.meta }), backfillBefore, '不能补录不存在的账户');
+context.data = { accounts: backfillContext.accounts, records: backfillContext.records, monthMeta: backfillContext.meta };
+assert.equal(run('normalizeImportedData(data).records["2026-01"].oldInactive'), '', '空值与待填草稿兼容现有导入结构');
+
+const persistenceContext = vm.createContext({
+  savedRawRef: { current: 'old' }, writeBlockedRef: { current: false }, persisted: 'old', saveStatus: 'saved', storageIssue: null,
+  saveFinancialData: () => ({ status: 'error', message: '测试写入失败' }),
+});
+persistenceContext.setPersistedPayload = (value) => { persistenceContext.persisted = value; };
+persistenceContext.setStorageIssue = (value) => { persistenceContext.storageIssue = value; };
+persistenceContext.setSaveStatus = (value) => { persistenceContext.saveStatus = value; };
+vm.runInContext(between('  const persistPayload = (nextPayload) => {', '\n  useEffect(() => {').replace('const persistPayload', 'this.persistPayload'), persistenceContext);
+vm.runInContext('persistPayload("closed-month")', persistenceContext);
+assert.equal(persistenceContext.persisted, 'old', '失败不能提前标记结账结果已持久化');
+persistenceContext.saveFinancialData = (value) => ({ status: 'saved', raw: value });
+vm.runInContext('persistPayload("closed-month")', persistenceContext);
+assert.equal(persistenceContext.persisted, 'closed-month');
+vm.runInContext('persistPayload("closed-month-with-action")', persistenceContext);
+assert.equal(persistenceContext.persisted, 'closed-month-with-action', '连续保存的短暂saveStatus相同也必须更新持久化快照');
+const closedLabel = (persisted, issue) => vm.runInNewContext(`(() => {${between("  const closingSaveState =", '  const backfillAccounts =')} return closingStatusLabel; })()`, { isClosed: true, isDataPersisted: persisted, storageIssue: issue });
+assert.equal(closedLabel(false, null), '已结账 · 保存中');
+assert.equal(closedLabel(false, { status: 'error' }), '已结账 · 修改未保存');
+assert.equal(closedLabel(true, { status: 'conflict' }), '已结账 · 修改未保存', '旧页历史保存过的内容发生冲突后也不能宣称当前已保存');
+assert.equal(closedLabel(true, null), '已结账并保存');
+console.log('财务回归检查通过：读取与保存保护、多页冲突、导入校验、历史快照与账户、草稿清理、历史复核、月度提醒节奏、首月核对、年度基线、样式加载、历史账户补录与结账持久化状态。');
