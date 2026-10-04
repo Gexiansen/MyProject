@@ -21,8 +21,13 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
   });
   const data = async () => JSON.parse(await stored());
   const unlock = async () => {
-    await observe();
     await stored();
+    const deadline = Date.now() + 60000;
+    while (!(await tab.ax.get()).includes('6位数字密码')) {
+      assert.ok(Date.now() < deadline, '应用未在一分钟内显示解锁界面');
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    await observe();
     await p.getByRole('textbox', { name: '6位数字密码', exact: true }).fill(password);
     await button('打开').click();
     await observe();
@@ -54,7 +59,7 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
   };
   const upload = async (file, recovering = false) => {
     const chooser = p.waitForEvent('filechooser', { timeoutMs: 10000 });
-    if (recovering) await p.getByText('导入备份恢复', { exact: true }).click();
+    if (recovering) await button('导入备份恢复').press('Enter');
     else await openMenu('导入数据');
     await (await chooser).setFiles(file);
     await observe();
@@ -114,7 +119,7 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     await reopen(); await editAmount('验收现金', 97000); await closeMonth();
     await upload(backup);
     assert.ok((await observe()).includes('确认覆盖并导入'));
-    await button('取消').click(); await observe();
+    await button('取消').click({ timeoutMs: 10000 }); await observe();
     assert.equal((await data()).records[secondMonth].cash, 97000);
     await upload(backup); await button('确认覆盖并导入').click(); await observe();
     assert.deepEqual((await data()).records, exported.records);
@@ -134,7 +139,7 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     assert.equal(await stored(), '{broken-json');
     const raw = await download(() => button('下载原始数据').click());
     assert.equal(await fs.readFile(raw, 'utf8'), '{broken-json');
-    await upload(backup, true); await button('取消').click(); await observe();
+    await upload(backup, true); await button('取消').click({ timeoutMs: 10000 }); await observe();
     assert.equal(await stored(), '{broken-json');
     await upload(invalid, true);
     assert.ok((await observe()).includes('导入失败'));
@@ -150,9 +155,167 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     await fs.writeFile(screenshot, await tab.screenshot({ fullPage: false }));
     return { width, passed: ['录入结账与刷新恢复', '历史复核与目标快照', '导出导入与取消保护', '非法导入保护', '损坏原文保留与备份恢复'], screenshot };
   } catch (error) {
+    try { await observe(); } catch {}
     throw new Error(`${error.message}\n验收页面状态：\n${lastSnapshot}`, { cause: error });
   } finally {
     await viewport.reset();
     await tab.close();
+  }
+}
+
+export async function runAuditFlows(browser, { baseUrl, password, width }) {
+  const url = new URL(baseUrl);
+  assert.ok(['127.0.0.1', 'localhost'].includes(url.hostname) && url.protocol === 'http:', '只允许独立本机验收服务');
+  assert.ok([390, 1280].includes(width), '验收宽度必须为 390 或 1280');
+  const run = `audit-${Date.now()}-${width}`;
+  const output = await fs.mkdtemp(path.join(os.tmpdir(), 'finance-audit-'));
+  const viewport = await browser.capabilities.get('viewport');
+  const tabs = [];
+  const passed = [];
+  let lastSnapshot = '';
+  const session = async (kind) => {
+    const tab = await browser.tabs.new(); tabs.push(tab);
+    await viewport.set({ width, height: 900 });
+    const p = tab.playwright;
+    const observe = async () => { lastSnapshot = await p.domSnapshot(); return lastSnapshot; };
+    const stored = () => p.evaluate(() => {
+      if (document.documentElement.dataset.acceptancePage !== 'synthetic-only') throw new Error('不是合成数据验收页面');
+      return document.documentElement.dataset.acceptanceStored;
+    });
+    const data = async () => JSON.parse(await stored());
+    const button = (name) => p.getByRole('button', { name, exact: typeof name === 'string' });
+    const click = async (name) => { await observe(); await button(name).click(); await observe(); };
+    const fill = async (selector, value) => { await observe(); await p.locator(selector).fill(String(value)); await observe(); };
+    const menu = async (name) => { await click('更多'); await p.getByRole('menuitem', { name, exact: true }).click(); await observe(); };
+    await tab.goto(`${baseUrl}/?run=${run}&case=${kind}`);
+    const deadline = Date.now() + 60000;
+    while (!(await tab.ax.get()).includes('6位数字密码')) {
+      assert.ok(Date.now() < deadline, '应用未在一分钟内显示解锁界面');
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    await stored(); await observe();
+    await p.getByRole('textbox', { name: '6位数字密码', exact: true }).fill(password);
+    await click('打开');
+    return { tab, p, observe, stored, data, button, click, fill, menu };
+  };
+  const checkLayout = async (view) => {
+    const size = await view.p.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+    assert.equal(size.width, width);
+    assert.ok(size.scroll <= size.width, '页面存在横向溢出');
+  };
+  const editGoalAmount = async (view, value) => {
+    await view.click('编辑 验收目标');
+    await view.fill('#goal-targetAmount', value);
+    await view.click('更新目标');
+  };
+  try {
+    await viewport.set({ width, height: 900 });
+    const review = await session('review');
+    assert.match(await review.observe(), /2 个月份待复核/);
+    await review.click('去复核结账');
+    assert.equal(await review.p.getByLabel('查看已有月份').evaluate(input => input.value), '2026-02');
+    const oldSnapshots = (await review.data()).goalHistory['2026-02'];
+    await review.click('重新编辑'); await review.click('确认重新编辑');
+    if (width === 390) await review.click(/^共同/);
+    assert.equal(await review.p.locator('[data-closing-account-id="review_inactive"]').isEnabled(), true);
+    assert.equal(await review.p.evaluate(() => document.querySelector('[data-closing-account-id="review_new"]') === null), true);
+    await review.fill('[data-closing-account-id="review_inactive"]', 46000);
+    await review.p.locator('[data-closing-account-id="review_inactive"]').press('Tab'); await review.observe();
+    await review.fill('[data-closing-account-id="review_fund"]', 32000);
+    await review.p.locator('[data-closing-account-id="review_fund"]').press('Tab'); await review.observe();
+    await review.click(/^展开其余/);
+    const reasonLabels = await review.p.evaluate(() => Array.from(document.querySelectorAll('select[aria-label$="变化原因"]')).map(item => item.getAttribute('aria-label')));
+    assert.ok(reasonLabels.length >= 4, '未展示第四个变化原因入口');
+    await review.p.getByRole('combobox', { name: reasonLabels[3], exact: true }).selectOption('其他'); await review.observe();
+    await review.click('完成本月结账'); await review.click(/^(确认结账|确认以上数值并结账)$/);
+    const revised = await review.data();
+    assert.equal(revised.records['2026-02'].review_inactive, 46000);
+    assert.equal(revised.accounts.find(item => item.id === 'review_inactive').active, false);
+    assert.deepEqual(revised.goalHistory['2026-02'].review_manual_goal, oldSnapshots.review_manual_goal);
+    assert.deepEqual(revised.goalHistory['2026-02'].review_linked_goal, { ...oldSnapshots.review_linked_goal, currentAmount: 32000 });
+    assert.equal(revised.goalHistory['2026-02'].review_new_goal, undefined);
+    assert.equal(revised.monthMeta['2026-02'].reviewRequired, undefined);
+    assert.equal(revised.monthMeta['2026-03'].reviewRequired, true);
+    await review.click('历史记录 · 3 个月');
+    await review.button('2026-01').press('Enter'); await review.observe();
+    assert.equal(await review.p.getByLabel('查看已有月份').evaluate(input => input.value), '2026-01');
+    assert.equal(await review.p.evaluate(() => window.scrollY), 0);
+    assert.equal(await review.p.evaluate(() => document.activeElement.getAttribute('aria-label')), '查看已有月份');
+    await review.click('总览');
+    assert.match(await review.observe(), /1 个月份待复核.*2026-03/);
+    assert.equal(await review.p.evaluate(() => window.scrollY), 0);
+    passed.push('历史账户修正、完整变化原因与历史目标快照保留', '最早待复核入口、剩余复核提醒与导航回顶');
+
+    await review.click('家庭目标');
+    assert.match(await review.observe(), /保障月数不足/);
+    await review.click('复核保障金额');
+    assert.equal(await review.p.locator('#goal-targetAmount').evaluate(input => input.value), '60000');
+    await review.click('使用建议金额');
+    assert.equal(await review.p.locator('#goal-targetAmount').evaluate(input => input.value), '120000');
+    await review.click('取消');
+    assert.equal((await review.data()).goals.find(goal => goal.id === 'review_emergency_goal').targetAmount, 60000);
+    await review.click('编辑 验收失效来源目标');
+    assert.equal(await review.p.locator('#goal-currentAmount').isEnabled(), false);
+    await review.click('解除已删除资金来源 review_deleted_source');
+    assert.equal(await review.p.locator('#goal-currentAmount').isEnabled(), true);
+    await review.fill('#goal-currentAmount', 5000); await review.click('更新目标');
+    const repairedGoal = (await review.data()).goals.find(goal => goal.id === 'review_missing_goal');
+    assert.deepEqual(repairedGoal.linkedAccountIds, []); assert.equal(repairedGoal.currentAmount, 5000);
+    await checkLayout(review);
+    passed.push('失效资金来源解除与备用金保障不足表达');
+    const screenshot = path.join(output, `audit-${width}.jpg`);
+    await fs.writeFile(screenshot, await review.tab.screenshot({ fullPage: false }));
+    await review.menu('导出数据');
+    await review.p.locator('#acceptance-download').waitFor({ state: 'visible', timeoutMs: 10000 });
+    const backup = path.join(output, 'review-backup.json');
+    await fs.writeFile(backup, await review.p.evaluate(() => document.documentElement.dataset.acceptanceDownload));
+
+    const failure = await session('write-error');
+    await failure.click('家庭目标');
+    const beforeFailure = await failure.stored();
+    await failure.click('启用验收写入故障');
+    await editGoalAmount(failure, 230000);
+    assert.equal(await failure.stored(), beforeFailure);
+    assert.match(await failure.observe(), /本机保存未成功/);
+    const chooser = failure.p.waitForEvent('filechooser', { timeoutMs: 10000 });
+    await failure.menu('导入数据');
+    await (await chooser).setFiles(backup); await failure.observe();
+    await failure.click('确认覆盖并导入');
+    assert.match(await failure.observe(), /导入未完成/);
+    assert.equal(await failure.button('确认覆盖并导入').isVisible(), true);
+    assert.equal(await failure.stored(), beforeFailure, '导入保存失败不得切换或覆盖原数据');
+    await failure.click('取消');
+    await failure.click('解除验收写入故障'); await failure.click('重试保存');
+    assert.equal((await failure.data()).goals[0].targetAmount, 230000);
+    assert.doesNotMatch(await failure.observe(), /本机保存未成功/);
+    await checkLayout(failure);
+    passed.push('保存失败重试、导入失败保留原页及确认窗口');
+
+    const first = await session('shared');
+    const second = await session('shared');
+    await first.click('家庭目标'); await second.click('家庭目标');
+    await editGoalAmount(first, 220000);
+    await second.observe();
+    assert.match(await second.observe(), /本页暂停保存/);
+    const newest = await first.stored();
+    await editGoalAmount(second, 240000);
+    assert.equal(await second.stored(), newest);
+    await second.click('导出本页副本');
+    await second.p.locator('#acceptance-download').waitFor({ state: 'visible', timeoutMs: 10000 });
+    const exported = await second.p.evaluate(() => document.documentElement.dataset.acceptanceDownload);
+    assert.equal(JSON.parse(exported).goals[0].targetAmount, 240000);
+    assert.equal(await second.stored(), newest); assert.equal(await first.stored(), newest);
+    await checkLayout(second);
+    passed.push('双标签冲突暂停写入与导出副本不覆盖新数据');
+    for (const tab of tabs) {
+      const errors = await tab.dev.logs({ levels: ['error'], limit: 100 });
+      assert.equal(errors.length, 0, JSON.stringify(errors));
+    }
+    return { width, passed, screenshot };
+  } catch (error) {
+    throw new Error(`${error.message}\n验收页面状态：\n${lastSnapshot}`, { cause: error });
+  } finally {
+    await viewport.reset();
+    for (const tab of tabs.reverse()) await tab.close();
   }
 }
