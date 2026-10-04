@@ -60,13 +60,41 @@ const reviewSeed = {
   isDemoData: false,
 };
 
+const overviewMonths = [...Array.from({ length: 14 }, (_, index) => `${2025 + Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`), '2026-04'];
+const overviewSeed = {
+  accounts: [
+    { id: 'overview_cash', name: '验收家庭备用金', type: 'asset', category: 'cash', member: '共同', active: true },
+    { id: 'overview_fund', name: '验收长期投资', type: 'asset', category: 'investment', member: '老公', active: true },
+    { id: 'overview_bond', name: '验收稳健投资', type: 'asset', category: 'investment', member: '老婆', active: true },
+    { id: 'overview_debt', name: '验收家庭贷款', type: 'liability', member: '共同', active: true },
+    { id: 'overview_income', name: '验收家庭收入', type: 'income', member: '老公', active: true },
+    { id: 'overview_expense', name: '验收家庭支出', type: 'expense', member: '共同', active: true },
+  ],
+  records: Object.fromEntries(overviewMonths.map((month, index) => [month, {
+    overview_cash: 60000,
+    overview_fund: 100000 + index * 6000,
+    overview_bond: 90000 + index * 5000,
+    overview_debt: 60000 - index * 1000,
+    overview_income: 30000,
+    overview_expense: 20000,
+  }])),
+  withdrawalRate: 4,
+  monthStatus: Object.fromEntries(overviewMonths.map(month => [month, 'closed'])),
+  monthMeta: {}, goalHistory: {}, isDemoData: false,
+  goals: [
+    { id: 'overview_emergency', name: '验收六个月备用金', targetAmount: 60000, currentAmount: 0, targetDate: '2030-12', linkedAccountIds: ['overview_cash'], priority: 'high', goalType: 'emergency', coverageMonthsTarget: 6 },
+    { id: 'overview_home', name: '验收未来居住计划', targetAmount: 600000, currentAmount: 0, targetDate: '2031-12', linkedAccountIds: ['overview_fund', 'overview_bond'], priority: 'medium', goalType: 'standard' },
+    { id: 'overview_travel', name: '验收暂缓旅行计划', targetAmount: 50000, currentAmount: 10000, targetDate: '2031-12', linkedAccountIds: [], priority: 'low', goalType: 'standard' },
+  ],
+};
+
 export function startAcceptanceServer() {
   const server = http.createServer((request, response) => {
     const url = new URL(request.url, 'http://localhost');
     if (url.pathname !== '/') { response.writeHead(404); response.end(); return; }
     let html = fs.readFileSync(new URL('../docs/index.html', import.meta.url), 'utf8');
-    const caseName = ['corrupt', 'shared', 'write-error', 'review'].includes(url.searchParams.get('case')) ? url.searchParams.get('case') : 'normal';
-    const raw = caseName === 'corrupt' ? '{broken-json' : JSON.stringify(caseName === 'review' ? reviewSeed : seed);
+    const caseName = ['corrupt', 'shared', 'write-error', 'review', 'overview'].includes(url.searchParams.get('case')) ? url.searchParams.get('case') : 'normal';
+    const raw = caseName === 'corrupt' ? '{broken-json' : JSON.stringify(caseName === 'review' ? reviewSeed : caseName === 'overview' ? overviewSeed : seed);
     const key = `finance-acceptance:${encodeURIComponent(url.searchParams.get('run') || 'manual')}:${caseName}`;
     const storageKey = caseName === 'shared' ? key : 'family-finance-v1';
     if (caseName === 'shared') html = html.replace("const STORAGE_KEY = 'family-finance-v1';", `const STORAGE_KEY = ${JSON.stringify(storageKey)};`);

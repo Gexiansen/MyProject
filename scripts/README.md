@@ -10,6 +10,8 @@
 
 专项场景在本机地址添加 `?run=本次唯一标识&case=场景名`：`review` 为历史复核、停用账户、失效目标来源和应急保障不足；`shared` 为同一 `run` 的双标签页共享存储；`write-error` 提供显式开启／解除模拟写入故障的验收按钮；`corrupt` 为损坏数据恢复。控件只存在于验收页面。
 
+`overview` 为总览布局专项场景，包含 15 条记录、末两条跨月、三项目标与金额达标但保障不足的应急目标。`runOverviewFlows(browser, { baseUrl, password, width })` 复用它与 `review`，检查月份口径、变化解释、重点目标数量、提醒分级与跳转、深度分析向下展开、少量与多量记录图表宽度及最新一期金额摘要。仍分别验收 `390` 和 `1280` 宽度。
+
 基础检查：`node scripts/check-finance.mjs`。
 
 浏览器检查：先运行 `node scripts/serve-acceptance.mjs`，使用输出的本机地址，在 Codex 浏览器运行环境导入 `check-browser-flows.mjs`。分别调用 `runFinanceFlows(browser, { baseUrl, password, width })` 和 `runAuditFlows(browser, { baseUrl, password, width })`。前者覆盖录入、结账、刷新、导入导出及键盘恢复；后者覆盖历史账户与目标快照、全部变化原因、复核入口、失效资金来源、应急保障表达、保存失败重试和真实双标签页冲突。`password` 由调用者传入验收页面的默认解锁值，不在脚本里保存密码；`width` 分别用 `1280` 和 `390`。浏览器接口是 Codex 已有工具，不安装新的包或建立构建流程。
@@ -21,9 +23,10 @@
 浏览器运行示例（先按当前 Codex 浏览器接口说明取得 `browser`）：
 
 ```js
-const { runFinanceFlows, runAuditFlows } = await import('/Users/geying/Hank/MyProject/HTML_Project/scripts/check-browser-flows.mjs');
+const { runFinanceFlows, runAuditFlows, runOverviewFlows } = await import('/Users/geying/Hank/MyProject/HTML_Project/scripts/check-browser-flows.mjs');
 nodeRepl.write(await runFinanceFlows(browser, { baseUrl, password, width: 390 }));
 nodeRepl.write(await runAuditFlows(browser, { baseUrl, password, width: 390 }));
+nodeRepl.write(await runOverviewFlows(browser, { baseUrl, password, width: 390 }));
 ```
 
 安全边界：脚本在解锁前验证验收页标识，拒绝操作普通财务页面。导出检查捕获现有应用实际生成的 Blob 内容，写入临时 JSON 后再通过真实文件选择器导入；不会重写导出数据来制造通过结果。当前 Codex 内置浏览器不返回此页面的下载事件，因此这里验证文件内容和恢复链路，不证明系统下载目录落盘成功；真实浏览器的系统下载行为仍需人工确认。

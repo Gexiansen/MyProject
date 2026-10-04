@@ -308,6 +308,56 @@ assert.match(fireDisplay(12000, 100000, 10).yearsText, /约 10.0 年/);
 assert.ok(fireDisplay(12000, 100000, 10).scenario.months > 0);
 assert.match(fireDisplay(12000, 0, null).yearsText, /按当前储蓄速度暂难达成/);
 
+const overviewContext = vm.createContext({
+  accounts: [{ id: 'emergency-cash', type: 'asset', category: 'cash' }], rec: { 'emergency-cash': 60000 },
+  goals: [
+    { id: 'emergency', goalType: 'emergency', targetAmount: 60000, targetDate: '2026-12', linkedAccountIds: ['emergency-cash'], coverageMonthsTarget: 6, priority: 'high' },
+    { id: 'second', targetAmount: 110000, currentAmount: 0, targetDate: '2026-12', priority: 'medium' },
+    { id: 'third', targetAmount: 33000, currentAmount: 0, targetDate: '2026-12', priority: 'medium' },
+    { id: 'later', targetAmount: 1100000, currentAmount: 0, targetDate: '2026-12', priority: 'low' },
+  ],
+  goalPriorityOrder: { high: 0, medium: 1, low: 2 }, recentAvgExp: 20000,
+  recentMonths: [{ saved: 20000 }], resolveGoalCurrentAmount: run('resolveGoalCurrentAmount'),
+  Date: class extends Date { constructor(...args) { super(...(args.length ? args : [2026, 0, 1])); } },
+});
+vm.runInContext(between('function getGoalProgress(', 'function actionMetricChange('), overviewContext);
+const overviewGoalBody = between('  const goalNow =', '  const missingLatestAccounts =');
+const overviewGoals = () => vm.runInContext(`(() => {${overviewGoalBody} return { goalPlans, activeGoalPlans, coverageReviewCount, totalMonthlyNeed, goalMonthlyBalance }; })()`, overviewContext);
+let overviewGoalState = overviewGoals();
+assert.equal(overviewGoalState.goalPlans[0].progress, 1, '应急资金金额已达标');
+assert.equal(overviewGoalState.goalPlans[0].coverageMonths, 3, '保障程度仍按当前平均支出计算');
+assert.equal(overviewGoalState.goalPlans[0].coverageShortfall, true);
+assert.equal(overviewGoalState.coverageReviewCount, 1);
+assert.equal(overviewGoalState.totalMonthlyNeed, 13000, '首页只显示两项目标，但投入汇总仍包含全部优先与正常目标');
+assert.equal(overviewGoalState.goalMonthlyBalance, 7000);
+overviewContext.rec['emergency-cash'] = -1000;
+overviewGoalState = overviewGoals();
+assert.equal(overviewGoalState.goalPlans[0].coverageMonths, 0, '负资金余额沿用原目标计算口径，不产生负进度');
+overviewContext.rec['emergency-cash'] = 60000;
+for (const expense of [0, -100]) {
+  overviewContext.recentAvgExp = expense;
+  overviewGoalState = overviewGoals();
+  assert.equal(overviewGoalState.goalPlans[0].coverageMonths, null);
+  assert.ok(overviewGoalState.activeGoalPlans.some(goal => goal.id === 'emergency'), '没有有效支出时应急保障仍需核对，不能仅凭金额完成判定全部完成');
+  assert.equal(overviewGoalState.coverageReviewCount, 1);
+}
+const cashTrendBody = between('  const cashTrend =', '  const cashTotals =');
+const cashTrendState = vm.runInNewContext(`(() => {${cashTrendBody} return cashTrend; })()`, {
+  nextMonth: month => month === '2026-01' ? '2026-02' : '2026-04',
+  chartData: [
+    { month: '2026-01', label: '1月', inc: 0, exp: 10000, saved: -10000 },
+    { month: '2026-03', label: '3月', inc: 10000, exp: 20000, saved: -10000 },
+  ],
+});
+assert.equal(cashTrendState[0].储蓄率, null, '最近一期摘要遇到零收入不显示虚假储蓄率');
+assert.equal(cashTrendState[1].储蓄率, -1);
+assert.equal(cashTrendState[1].结余, -1);
+assert.equal(cashTrendState[1].比较口径, '较上次记录');
+const chartWidthBody = between('  const monthlyChartMinWidth =', '  const assetTrend =');
+for (const count of [1, 3, 12, 15]) {
+  assert.equal(vm.runInNewContext(`(() => {${chartWidthBody} return monthlyChartMinWidth; })()`, { chartData: Array(count) }), count * 64, '少量记录不再强制占用640px');
+}
+
 const annualBody = between('  const annual = useMemo(() => {', '  }, [series]);').replace('  const annual = useMemo(() => {', '');
 context.series = [];
 assert.equal(run(`(() => {${annualBody}})()`).length, 0);
@@ -501,4 +551,4 @@ assert.equal(closedLabel(false, null), '已结账 · 保存中');
 assert.equal(closedLabel(false, { status: 'error' }), '已结账 · 修改未保存');
 assert.equal(closedLabel(true, { status: 'conflict' }), '已结账 · 修改未保存', '旧页历史保存过的内容发生冲突后也不能宣称当前已保存');
 assert.equal(closedLabel(true, null), '已结账并保存');
-console.log('财务回归检查通过：读取与保存保护、多页冲突、导入校验、历史快照与账户、草稿清理、历史复核、月度提醒节奏、首月核对、年度基线、样式加载、历史账户补录与结账持久化状态。');
+console.log('财务回归检查通过：读取与保存保护、多页冲突、导入校验、历史快照与账户、草稿清理、历史复核、月度提醒节奏、首月核对、年度基线、样式加载、历史账户补录与结账持久化状态、总览应急保障与图表摘要边界。');

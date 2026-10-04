@@ -400,3 +400,142 @@ export async function runAuditFlows(browser, { baseUrl, password, width }) {
     for (const tab of tabs.reverse()) await tab.close();
   }
 }
+
+export async function runOverviewFlows(browser, { baseUrl, password, width }) {
+  const url = new URL(baseUrl);
+  assert.ok(['127.0.0.1', 'localhost'].includes(url.hostname) && url.protocol === 'http:', '只允许独立本机验收服务');
+  assert.ok([390, 1280].includes(width), '验收宽度必须为 390 或 1280');
+  const run = `overview-${Date.now()}-${width}`;
+  const output = await fs.mkdtemp(path.join(os.tmpdir(), 'finance-overview-'));
+  const viewport = await browser.capabilities.get('viewport');
+  const tabs = [];
+  const passed = [];
+  let lastSnapshot = '';
+  const session = async (kind) => {
+    const tab = await browser.tabs.new(); tabs.push(tab);
+    await viewport.set({ width, height: 900 });
+    const p = tab.playwright;
+    const observe = async () => { lastSnapshot = await p.domSnapshot(); return lastSnapshot; };
+    const stored = () => p.evaluate(() => {
+      if (document.documentElement.dataset.acceptancePage !== 'synthetic-only') throw new Error('不是合成数据验收页面');
+      return document.documentElement.dataset.acceptanceStored;
+    });
+    const button = name => p.getByRole('button', { name, exact: true });
+    const click = async name => { await button(name).click(); await observe(); };
+    const text = id => p.locator(`section[aria-labelledby="${id}"]`).evaluate(element => element.innerText);
+    await tab.goto(`${baseUrl}/?run=${run}&case=${kind}`);
+    const deadline = Date.now() + 60000;
+    while (!(await tab.ax.get()).includes('6位数字密码')) {
+      assert.ok(Date.now() < deadline, '应用未在一分钟内显示解锁界面');
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    await stored(); await observe();
+    await p.getByRole('textbox', { name: '6位数字密码', exact: true }).fill(password);
+    await click('打开');
+    return { tab, p, observe, stored, button, click, text };
+  };
+  const layout = async view => {
+    const size = await view.p.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth }));
+    assert.equal(size.width, width);
+    assert.ok(size.scroll <= width, '总览页面存在横向溢出');
+  };
+  const chartLayout = async (view, expectMobileScroll) => {
+    const metrics = await view.p.evaluate(() => ['现金流趋势图', '净资产增长来源图'].map(label => {
+      const region = document.querySelector(`[role="region"][aria-label="${label}"]`);
+      const hint = region.closest('section').querySelector('[data-chart-scroll-hint]');
+      return { label, scroll: region.scrollWidth, width: region.clientWidth, hint: getComputedStyle(hint).display !== 'none' };
+    }));
+    for (const metric of metrics) {
+      assert.equal(metric.hint, metric.scroll > metric.width, `${metric.label}滑动提示必须与实际横向空间一致`);
+      if (width === 390) assert.equal(metric.scroll > metric.width, expectMobileScroll, `${metric.label}手机横向布局不符合记录数量`);
+      if (!expectMobileScroll) assert.ok(metric.scroll <= metric.width, `${metric.label}少量记录不应产生横向滚动`);
+    }
+  };
+  const openDeep = async view => {
+    const before = await view.button('展开深度分析').evaluate(element => element.getBoundingClientRect().top + scrollY);
+    assert.equal(await view.p.evaluate(() => document.querySelector('#overview-withdrawal-rate') === null), true);
+    await view.click('展开深度分析');
+    const position = await view.button('收起深度分析').evaluate(element => {
+      const button = element.getBoundingClientRect();
+      const details = document.querySelector('#overview-deep-analysis').getBoundingClientRect();
+      return { buttonTop: button.top + scrollY, buttonBottom: button.bottom + scrollY, detailsTop: details.top + scrollY };
+    });
+    assert.ok(Math.abs(before - position.buttonTop) < 1, '展开深度分析不得在按钮上方插入内容');
+    assert.ok(position.detailsTop >= position.buttonBottom, '详情应从展开按钮下方开始');
+    assert.match(await view.text('fire-detail-title'), /估算年可提取金额/);
+  };
+  try {
+    const overview = await session('overview');
+    const initialData = JSON.parse(await overview.stored());
+    assert.equal(Object.keys(initialData.records).length, 15);
+    assert.match(await overview.text('asset-status-title'), /截至 2026年4月末/);
+    assert.match(await overview.text('asset-status-title'), /较 2026-02/);
+    assert.match(await overview.text('monthly-cashflow-title'), /2026年4月现金流/);
+    const explanation = await overview.text('overview-change-title');
+    assert.match(explanation, /2026-02 → 2026-04/);
+    assert.match(explanation, /净资产变化.*1\.2万.*本期结余.*1\.0万.*非收支变化.*0\.2万/s);
+    assert.match(explanation, /记录不连续/);
+    assert.equal(await overview.p.evaluate(() => document.querySelector('[aria-label="重点家庭目标"]').querySelectorAll('[role="progressbar"]').length), 2);
+    assert.equal(await overview.p.getByRole('progressbar', { name: '验收六个月备用金保障进度', exact: true }).evaluate(element => element.getAttribute('aria-valuenow')), '50');
+    assert.match(await overview.text('overview-goals-title'), /保障 3\.0／6 个月/);
+    assert.match(await overview.text('overview-goals-title'), /金额已达成，保障仍不足/);
+    assert.match(await overview.text('overview-goals-title'), /另有 1 个/);
+    assert.doesNotMatch(await overview.text('overview-goals-title'), /验收暂缓旅行计划/);
+    assert.equal(await overview.p.evaluate(() => document.querySelector('section[aria-labelledby="overview-check-title"] details').open), false);
+    assert.doesNotMatch(await overview.text('overview-check-title'), /尚无导出备份记录/);
+    await layout(overview);
+    passed.push('历史月份就近展示、跨月比较与变化解释前置', '应急保障主进度、重点目标数量和核对分层');
+    const screenshot = path.join(output, `overview-${width}.jpg`);
+    await fs.writeFile(screenshot, await overview.tab.screenshot({ fullPage: false }));
+
+    await openDeep(overview);
+    let cashText = await overview.text('cashflow-trend-title');
+    assert.match(cashText, /最近一期 · 2026-04/);
+    for (const [label, value] of [['收入', '3.0万'], ['支出', '2.0万'], ['结余', '1.0万'], ['储蓄率', '33.3%']]) {
+      assert.ok(cashText.includes(label) && cashText.includes(value), `缺少最近一期${label}精确信息`);
+    }
+    assert.match(await overview.observe(), /2025-04—2026-04 · 12 条记录/);
+    await chartLayout(overview, true);
+    await overview.click('全部');
+    assert.match(await overview.observe(), /2025-01—2026-04 · 15 条记录/);
+    assert.match(lastSnapshot, /缺少月份：2026-03/);
+    await chartLayout(overview, true); await layout(overview);
+    await overview.click('最近12条'); await overview.click('收起深度分析');
+    assert.equal(await overview.p.evaluate(() => document.querySelector('#overview-deep-analysis') === null), true);
+    assert.deepEqual(JSON.parse(await overview.stored()), initialData, '查看与展开总览不能改变财务数据');
+    await overview.p.locator('section[aria-labelledby="overview-check-title"] details summary').click(); await overview.observe();
+    assert.match(await overview.text('overview-check-title'), /最近三条记录余额不变/);
+    await overview.click('导出备份');
+    await overview.p.locator('#acceptance-download').waitFor({ state: 'visible', timeoutMs: 10000 });
+    const exported = JSON.parse(await overview.p.evaluate(() => document.documentElement.dataset.acceptanceDownload));
+    assert.deepEqual(exported.records, initialData.records, '核对区的备份入口复用完整数据导出');
+    passed.push('深度分析只向下展开、最近一期金额摘要、12条与全部范围', '多月图表内部滑动与明确提示、就近备份入口');
+
+    const review = await session('review');
+    assert.equal(await review.p.evaluate(() => (document.body.innerText.match(/历史调整后需要复核/g) || []).length), 1, '历史复核提醒不得在总览重复堆叠');
+    assert.match(await review.text('overview-check-title'), /目标关联账户已不存在/);
+    assert.equal(await review.p.evaluate(() => document.querySelector('section[aria-labelledby="overview-check-title"] details').open), false);
+    await review.click('检查目标来源');
+    assert.match(await review.observe(), /验收失效来源目标/);
+    await review.click('总览'); await review.click('去复核结账');
+    assert.equal(await review.p.getByLabel('查看已有月份').evaluate(input => input.value), '2026-02');
+    await review.click('总览'); await review.click('核对本期变化');
+    assert.equal(await review.p.getByLabel('查看已有月份').evaluate(input => input.value), '2026-03', '总览本期入口不能误入最早待复核月份');
+    await review.click('总览'); await review.click('查看本期记录');
+    assert.equal(await review.p.getByLabel('查看已有月份').evaluate(input => input.value), '2026-03');
+    await review.click('总览'); await openDeep(review);
+    await chartLayout(review, false); await layout(review);
+    passed.push('关键核对默认可见、复核与本期入口正确分流', '三条记录图表自适应手机、不显示多余滑动提示');
+    for (const tab of tabs) {
+      const errors = await tab.dev.logs({ levels: ['error'], limit: 100 });
+      assert.equal(errors.length, 0, JSON.stringify(errors));
+    }
+    return { width, passed, screenshot };
+  } catch (error) {
+    try { lastSnapshot = await tabs[tabs.length - 1]?.playwright.domSnapshot(); } catch {}
+    throw new Error(`${error.message}\n验收页面状态：\n${lastSnapshot}`, { cause: error });
+  } finally {
+    await viewport.reset();
+    for (const tab of tabs.reverse()) await tab.close();
+  }
+}

@@ -596,6 +596,8 @@ function FamilyFinance({ onChangePassword }) {
   const [lastExportAt, setLastExportAt] = useState(() => saved?.lastExportAt || null);
   const [isDemoData, setIsDemoData] = useState(() => saved ? saved.isDemoData === true : true);
   const [tab, setTab] = useState('overview');
+  const [closingRequestedMonth, setClosingRequestedMonth] = useState(null);
+  useEffect(() => { if (tab !== 'closing') setClosingRequestedMonth(null); }, [tab]);
   const [range, setRange] = useState('1y');
   const [saveStatus, setSaveStatus] = useState('');
   const [persistedPayload, setPersistedPayload] = useState(loaded.raw);
@@ -1114,7 +1116,8 @@ function FamilyFinance({ onChangePassword }) {
           <Overview latest={latest} chartData={chartData} series={series} fire={fire} cashflow={cashflow}
             withdrawalRate={withdrawalRate} setWithdrawalRate={setWithdrawalRate}
             accounts={accounts} records={records} range={range} setRange={setRange} goals={goals} setTab={setTab}
-            monthMeta={monthMeta} monthStatus={monthStatus} lastExportAt={lastExportAt} />
+            monthMeta={monthMeta} monthStatus={monthStatus} lastExportAt={lastExportAt} onExport={() => exportData()}
+            onOpenLatestClosing={() => { setClosingRequestedMonth(latest?.month || null); setTab('closing'); }} />
         )}
         {tab === 'accounts' && (
           <Accounts accounts={accounts} setAccounts={setAccounts} setRecords={setRecords}
@@ -1123,7 +1126,7 @@ function FamilyFinance({ onChangePassword }) {
         {tab === 'closing' && (
           <Closing accounts={accounts} setAccounts={setAccounts} records={records} setRecords={setRecords}
             series={series} monthStatus={monthStatus} setMonthStatus={setMonthStatus} monthMeta={monthMeta} setMonthMeta={setMonthMeta}
-            goals={goals} goalHistory={goalHistory} setGoalHistory={setGoalHistory} initialMonth={reviewMonths[0]}
+            goals={goals} goalHistory={goalHistory} setGoalHistory={setGoalHistory} initialMonth={closingRequestedMonth || reviewMonths[0]}
             isDataPersisted={payload === persistedPayload} storageIssue={storageIssue}
             onRetrySave={() => setSaveAttempt((attempt) => attempt + 1)} onExportCopy={() => exportData({ copyOnly: true })} onReloadSaved={reloadSavedData} />
         )}
@@ -1254,7 +1257,7 @@ function DataStatusNotice({ latestMonth, lagMonths, isDraft, pendingCount, revie
 }
 
 // ---------- 总览 ----------
-function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab, monthMeta, monthStatus, lastExportAt }) {
+function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, setWithdrawalRate, accounts, records, range, setRange, goals, setTab, monthMeta, monthStatus, lastExportAt, onExport, onOpenLatestClosing }) {
   const [expandCat, setExpandCat] = useState(null);
   const [moreOpen, setMoreOpen] = useState(false);
   if (!latest) return (
@@ -1267,6 +1270,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   );
 
   const rec = records[latest.month] || {};
+  const latestMonthLabel = `${latest.month.slice(0, 4)}年${Number(latest.month.slice(5))}月`;
 
   const pieData = expandCat
     ? accounts.filter((a) => a.type === 'asset' && getAssetCategory(a) === expandCat)
@@ -1307,7 +1311,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     攒的: +(s.saved / 10000).toFixed(1), 非收支变化: +(s.nonCashChange / 10000).toFixed(1),
     结余金额: s.saved, 非收支变化金额: s.nonCashChange, drivers: s.drivers,
   }));
-  const monthlyChartMinWidth = Math.max(640, chartData.length * 64);
+  const monthlyChartMinWidth = chartData.length * 64;
   const assetTrend = chartData.map((s) => {
     const total = s.cash + s.invest + s.fixed;
     return {
@@ -1337,12 +1341,12 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   const attentionItems = [];
   if (latest.saved < 0) attentionItems.push({
     title: '先恢复正结余',
-    detail: `本月支出比收入多 ${fmtWan(Math.abs(latest.saved))}，下月优先检查可调整支出。`,
+    detail: `本期支出比收入多 ${fmtWan(Math.abs(latest.saved))}，下一期优先检查可调整支出。`,
     tone: 'rose',
   });
   if (latest.saved >= 0 && latest.netChange < 0) attentionItems.push({
     title: '核对净资产下滑',
-    detail: `本月结余 ${fmtWan(latest.saved)}，但净资产仍下降 ${fmtWan(Math.abs(latest.netChange))}，可结合“非收支变化”检查原因。`,
+    detail: `本期结余 ${fmtWan(latest.saved)}，但净资产仍下降 ${fmtWan(Math.abs(latest.netChange))}，可结合“非收支变化”检查原因。`,
     tone: 'amber',
   });
   if (emergencyCoverageMonths != null && emergencyCoverageMonths < emergencyCoverageTarget) attentionItems.push({
@@ -1388,12 +1392,13 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
         coverageMonthsTarget,
         coverageMonths,
         coverageShortfall: coverageMonths != null && coverageMonths < coverageMonthsTarget,
+        coverageUnknown: goal.goalType === 'emergency' && coverageMonths == null,
       };
     })
     .sort((a, b) => (goalPriorityOrder[a.priority] ?? 1) - (goalPriorityOrder[b.priority] ?? 1) || String(a.targetDate || '').localeCompare(String(b.targetDate || '')));
-  const activeGoalPlans = goalPlans.filter((goal) => goal.gap > 0 || goal.coverageShortfall);
+  const activeGoalPlans = goalPlans.filter((goal) => goal.gap > 0 || goal.coverageShortfall || goal.coverageUnknown);
   const completedGoalCount = goalPlans.length - activeGoalPlans.length;
-  const coverageReviewCount = activeGoalPlans.filter((goal) => goal.gap === 0 && goal.coverageShortfall).length;
+  const coverageReviewCount = activeGoalPlans.filter((goal) => goal.gap === 0 && (goal.coverageShortfall || goal.coverageUnknown)).length;
   const fundedGoalPlans = activeGoalPlans.filter((goal) => goal.priority !== 'low');
   const overdueGoalCount = fundedGoalPlans.filter((goal) => goal.monthlyNeed == null).length;
   const totalMonthlyNeed = fundedGoalPlans.reduce((sum, goal) => sum + (goal.monthlyNeed || 0), 0);
@@ -1420,17 +1425,28 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   const exportDate = lastExportAt ? new Date(lastExportAt) : null;
   const exportDaysAgo = exportDate && !Number.isNaN(exportDate.getTime()) ? Math.floor((Date.now() - exportDate.getTime()) / 86400000) : null;
   const trustItems = [];
-  if (missingLatestAccounts.length > 0) trustItems.push({ title: '本月账户未填写', detail: `${missingLatestAccounts.length} 个账户在 ${latest.month} 没有完整数值。`, tone: 'rose' });
-  if (unannotatedLargeDrivers.length > 0) trustItems.push({ title: '大额变化未标注', detail: `${unannotatedLargeDrivers.length} 个账户变化超过 1 万元但尚未填写原因。`, tone: 'amber' });
-  if (Math.abs(latest.nonCashChange) > Math.abs(latest.saved) && Math.abs(latest.nonCashChange) >= 10000) trustItems.push({ title: '非收支变化较大', detail: `非收支变化 ${yuanSign(latest.nonCashChange)}，绝对值超过本月结余。`, tone: 'amber' });
-  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '最近三条记录余额不变', detail: `${unchangedBalanceAccounts.length} 个现金、投资或负债账户最近三条记录相同，请确认不是忘记更新；记录不一定连续。`, tone: 'slate' });
-  const reviewMonths = Object.keys(records).filter((month) => monthMeta[month]?.reviewRequired).sort();
-  if (reviewMonths.length > 0) trustItems.push({ title: '历史调整后需要复核', detail: `${reviewMonths.length} 个月份待复核，最早为 ${reviewMonths[0]}，请按顺序重新编辑并结账。`, tone: 'amber' });
-  if (duplicateGoalAccounts.length > 0) trustItems.push({ title: '目标资金重复计算', detail: `${duplicateGoalAccounts.length} 个资产账户同时关联多个目标。`, tone: 'rose' });
-  if (missingGoalAccounts.length > 0) trustItems.push({ title: '目标关联账户已不存在', detail: `${missingGoalAccounts.length} 个目标资金账户无法在账户管理中找到。`, tone: 'rose' });
-  if (invalidGoalSourceLinks.length > 0) trustItems.push({ title: '目标资金来源不符合口径', detail: `${invalidGoalSourceLinks.length} 个关联账户已不计入目标进度，请到家庭目标中重新选择资金来源。`, tone: 'rose' });
-  if (exportDaysAgo == null) trustItems.push({ title: '尚无导出备份记录', detail: '建议完成首次数据导出，并将 JSON 保存在其他位置。', tone: 'slate' });
-  else if (exportDaysAgo > 30) trustItems.push({ title: '备份超过 30 天', detail: `距离上次导出已经 ${exportDaysAgo} 天。`, tone: 'amber' });
+  if (missingLatestAccounts.length > 0) trustItems.push({ title: '本期账户未填写', detail: `${missingLatestAccounts.length} 个账户在 ${latest.month} 没有完整数值。`, tone: 'rose', action: 'closing', actionLabel: '去补录' });
+  if (unannotatedLargeDrivers.length > 0) trustItems.push({ title: '大额变化未标注', detail: `${unannotatedLargeDrivers.length} 个账户变化超过 1 万元但尚未填写原因。`, tone: 'amber', action: 'closing', actionLabel: '查看变化' });
+  if (Math.abs(latest.nonCashChange) > Math.abs(latest.saved) && Math.abs(latest.nonCashChange) >= 10000) trustItems.push({ title: '非收支变化较大', detail: `非收支变化 ${yuanSign(latest.nonCashChange)}，绝对值超过本期结余。`, tone: 'amber', action: 'closing', actionLabel: '查看变化' });
+  if (unchangedBalanceAccounts.length > 0) trustItems.push({ title: '最近三条记录余额不变', detail: `${unchangedBalanceAccounts.length} 个现金、投资或负债账户最近三条记录相同，请确认不是忘记更新；记录不一定连续。`, tone: 'slate', action: 'closing', actionLabel: '核对余额' });
+  if (duplicateGoalAccounts.length > 0) trustItems.push({ title: '目标资金重复计算', detail: `${duplicateGoalAccounts.length} 个资产账户同时关联多个目标。`, tone: 'rose', action: 'goals', actionLabel: '检查目标来源' });
+  if (missingGoalAccounts.length > 0) trustItems.push({ title: '目标关联账户已不存在', detail: `${missingGoalAccounts.length} 个目标资金账户无法在账户管理中找到。`, tone: 'rose', action: 'goals', actionLabel: '检查目标来源' });
+  if (invalidGoalSourceLinks.length > 0) trustItems.push({ title: '目标资金来源不符合口径', detail: `${invalidGoalSourceLinks.length} 个关联账户已不计入目标进度，请到家庭目标中重新选择资金来源。`, tone: 'rose', action: 'goals', actionLabel: '检查目标来源' });
+  if (exportDaysAgo == null) trustItems.push({ title: '尚无导出备份记录', detail: '建议完成首次数据导出，并将 JSON 保存在其他位置。', tone: 'slate', action: 'export', actionLabel: '导出备份' });
+  else if (exportDaysAgo > 30) trustItems.push({ title: '备份超过 30 天', detail: `距离上次导出已经 ${exportDaysAgo} 天。`, tone: 'amber', action: 'export', actionLabel: '导出备份' });
+  const criticalTrustItems = trustItems.filter((item) => item.tone === 'rose');
+  const routineTrustItems = trustItems.filter((item) => item.tone !== 'rose');
+  const renderTrustItem = (item) => (
+    <div key={item.title} className={`py-3 first:pt-0 last:pb-0 ${item.tone === 'rose' ? 'text-rose-800' : 'text-slate-700'}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{item.title}</p>
+          <p className="text-sm text-slate-600 mt-1 leading-5">{item.detail}</p>
+        </div>
+        <button onClick={() => item.action === 'export' ? onExport() : item.action === 'closing' ? onOpenLatestClosing() : setTab(item.action)} className="shrink-0 min-h-10 px-2 text-sm text-indigo-700 rounded-lg hover:bg-indigo-50">{item.actionLabel}</button>
+      </div>
+    </div>
+  );
   const actionReviews = [];
   series.forEach((before, index) => {
     const next = series[index + 1];
@@ -1466,69 +1482,121 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
     return null;
   };
   const fireScenarios = [
-    { name: '保守', annualReturn: 0.02, expenseGrowth: 0.03, tone: 'border-slate-200 bg-slate-50' },
-    { name: '基准', annualReturn: 0.04, expenseGrowth: 0.02, tone: 'border-indigo-200 bg-indigo-50' },
-    { name: '乐观', annualReturn: 0.06, expenseGrowth: 0.02, tone: 'border-emerald-200 bg-emerald-50' },
+    { name: '保守', annualReturn: 0.02, expenseGrowth: 0.03 },
+    { name: '基准', annualReturn: 0.04, expenseGrowth: 0.02 },
+    { name: '乐观', annualReturn: 0.06, expenseGrowth: 0.02 },
   ].map((scenario) => ({ ...scenario, result: projectFireScenario(scenario.annualReturn, scenario.expenseGrowth) }));
 
   return (
     <div className="space-y-4">
       <div className="grid md:grid-cols-2 gap-3">
         <section aria-labelledby="asset-status-title" className="bg-white rounded-xl p-4 border border-slate-200">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex p-1.5 rounded-lg text-indigo-600 bg-indigo-50"><Wallet className="w-4 h-4" /></span>
             <h2 id="asset-status-title" className="text-sm font-semibold text-slate-700">资产状态</h2>
+            <span className="ml-auto text-xs text-slate-600">截至 {latestMonthLabel}末</span>
           </div>
           <div className="flex items-end justify-between gap-3 mt-3">
             <div>
               <div className="text-xs text-slate-500">净资产</div>
-              <div className="text-2xl font-bold text-slate-800 mt-0.5">{fmtWan(latest.nw)}</div>
+              <div className="text-3xl font-bold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.nw)}</div>
             </div>
             {latest.netChange != null && (
               <div className={`text-xs font-medium rounded-full px-2.5 py-1 ${latest.netChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
-                本月变化 {wanSign(latest.netChange)}
+                {previousMonth ? `较 ${previousMonth.month}` : '本期变化'} {wanSign(latest.netChange)}
               </div>
             )}
           </div>
           <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-100">
             <div>
-              <div className="text-xs text-slate-400">总资产</div>
-              <div className="text-base font-semibold text-emerald-600 mt-0.5">{fmtWan(latest.assets)}</div>
+              <div className="text-sm text-slate-600">总资产</div>
+              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.assets)}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-400">总负债</div>
-              <div className="text-base font-semibold text-rose-600 mt-0.5">{fmtWan(latest.liab)}</div>
+              <div className="text-sm text-slate-600">总负债</div>
+              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.liab)}</div>
             </div>
           </div>
-          <p className="text-xs text-slate-400 mt-2">现金 {fmtWan(latest.cash)} · 投资 {fmtWan(latest.invest)} · 固定 {fmtWan(latest.fixed)}</p>
+          <p className="text-xs text-slate-600 mt-2">现金 {fmtWan(latest.cash)} · 投资 {fmtWan(latest.invest)} · 固定资产 {fmtWan(latest.fixed)}</p>
         </section>
 
         <section aria-labelledby="monthly-cashflow-title" className="bg-white rounded-xl p-4 border border-slate-200">
           <div className="flex items-center gap-2">
             <span className="inline-flex p-1.5 rounded-lg text-amber-600 bg-amber-50"><PiggyBank className="w-4 h-4" /></span>
-            <h2 id="monthly-cashflow-title" className="text-sm font-semibold text-slate-700">本月现金流</h2>
+            <h2 id="monthly-cashflow-title" className="text-sm font-semibold text-slate-700">{latestMonthLabel}现金流</h2>
           </div>
           <div className="mt-3">
-            <div className="text-xs text-slate-500">本月攒下</div>
-            <div className={`text-2xl font-bold mt-0.5 ${latest.saved >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{fmtWan(latest.saved)}</div>
+            <div className="text-xs text-slate-600">本期结余</div>
+            <div className={`text-3xl font-bold mt-0.5 tabular-nums ${latest.saved >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtWan(latest.saved)}</div>
           </div>
           <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-100">
             <div>
-              <div className="text-xs text-slate-400">收入</div>
-              <div className="text-base font-semibold text-emerald-600 mt-0.5">{fmtWan(latest.inc)}</div>
+              <div className="text-sm text-slate-600">收入</div>
+              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.inc)}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-400">支出</div>
-              <div className="text-base font-semibold text-amber-600 mt-0.5">{fmtWan(latest.exp)}</div>
+              <div className="text-sm text-slate-600">支出</div>
+              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.exp)}</div>
             </div>
           </div>
         </section>
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="flex items-center gap-2 font-semibold mb-2">
-          <Target className="w-5 h-5 text-indigo-600" />家庭目标与现金流
-          {goalPlans.length > 0 && <span className="ml-auto text-xs text-slate-400 text-right">{completedGoalCount} 个已完成 · {activeGoalPlans.length - coverageReviewCount} 个进行中{coverageReviewCount > 0 ? ` · ${coverageReviewCount} 个保障待复核` : ''}</span>}
+      <section aria-labelledby="overview-change-title" className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="overview-change-title" className="text-sm font-semibold text-slate-800">本期变化解释</h2>
+          {previousMonth && <span className="text-xs text-slate-600">{previousMonth.month} → {latest.month}</span>}
+        </div>
+        {latest.netChange == null ? <p className="text-sm text-slate-600 mt-2">这是首条月末记录，尚无期初余额可用于解释净资产变化。</p> : <>
+          <p className="text-sm text-slate-700 mt-2 leading-6">
+            净资产变化 <strong className="tabular-nums">{wanSign(latest.netChange)}</strong>
+            {' ＝ '}本期结余 <strong className="tabular-nums">{wanSign(latest.saved)}</strong>
+            {' ＋ '}非收支变化 <strong className="tabular-nums">{wanSign(latest.nonCashChange)}</strong>
+          </p>
+          {previousMonth && nextMonth(previousMonth.month) !== latest.month && <p className="mt-1 text-xs text-amber-800">记录不连续，以上比较跨月；缺失月份的收支未补齐，不将非收支变化直接视为投资收益。</p>}
+          {latest.drivers.length > 0 && <p className="text-sm text-slate-600 mt-2 leading-6">主要变化：{latest.drivers.slice(0, 2).map((driver) => `${driver.name} ${wanSign(driver.contribution)}`).join('；')}</p>}
+          <button onClick={onOpenLatestClosing} className="mt-1 min-h-10 text-sm text-indigo-700 hover:underline">核对本期变化</button>
+        </>}
+      </section>
+
+      <section aria-labelledby="overview-attention-title" className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center gap-2">
+          {attentionItems.length > 0 ? <AlertTriangle className="w-5 h-5 text-amber-700" /> : <Info className="w-5 h-5 text-slate-500" />}
+          <h2 id="overview-attention-title" className="font-semibold text-slate-800">{latestMonthLabel}财务关注</h2>
+          <span className="ml-auto text-xs text-slate-600">{attentionItems.length > 0 ? `${attentionItems.length} 项` : '未触发提醒'}</span>
+        </div>
+        {attentionItems.length > 0 ? <>
+          <div className="divide-y divide-slate-100 mt-3">
+            {attentionItems.map((item) => <div key={item.title} className="py-3 first:pt-0 last:pb-0">
+              <p className={`text-sm font-medium ${item.tone === 'rose' ? 'text-rose-700' : 'text-amber-800'}`}>{item.title}</p>
+              <p className="text-sm text-slate-600 mt-1 leading-5">{item.detail}</p>
+            </div>)}
+          </div>
+          <button onClick={onOpenLatestClosing} className="mt-1 min-h-10 text-sm text-indigo-700 hover:underline">查看本期记录</button>
+        </> : <p className="text-sm text-slate-600 mt-2">本期未触发预设关注规则，不代表没有财务风险。</p>}
+        <details className="mt-2 text-xs text-slate-600">
+          <summary className="cursor-pointer py-2">查看提示规则</summary>
+          <p className="mt-1 leading-5">负结余、结余为正但净资产下降、现金缓冲低于{primaryEmergencyGoal ? `家庭目标 ${emergencyCoverageTarget} 个月` : '默认 3 个月'}、负债增加或单一投资账户占比超过 50%。</p>
+        </details>
+      </section>
+
+      <section aria-labelledby="overview-check-title" className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex items-center gap-2">
+          <ListChecks className="w-5 h-5 text-slate-600" />
+          <h2 id="overview-check-title" className="font-semibold text-slate-800">数据核对</h2>
+          <span className={`ml-auto text-xs ${criticalTrustItems.length ? 'text-rose-700' : 'text-slate-600'}`}>{criticalTrustItems.length > 0 ? `${criticalTrustItems.length} 项需处理` : '无关键缺项'}</span>
+        </div>
+        {criticalTrustItems.length > 0 && <div className="mt-3 divide-y divide-slate-100">{criticalTrustItems.map(renderTrustItem)}</div>}
+        {routineTrustItems.length > 0 && <details className="mt-2">
+          <summary className="cursor-pointer py-2 text-sm text-slate-600">其他 {routineTrustItems.length} 项核对与备份提醒</summary>
+          <div className="pt-2 divide-y divide-slate-100">{routineTrustItems.map(renderTrustItem)}</div>
+        </details>}
+      </section>
+
+      <section aria-labelledby="overview-goals-title" className="bg-white rounded-xl p-4 border border-slate-200">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+          <h2 id="overview-goals-title" className="flex items-center gap-2 font-semibold text-slate-800"><Target className="w-5 h-5 text-indigo-600" />家庭目标与现金流</h2>
+          {goalPlans.length > 0 && <span className="sm:ml-auto text-xs text-slate-600">{completedGoalCount} 个已完成 · {activeGoalPlans.length - coverageReviewCount} 个进行中{coverageReviewCount > 0 ? ` · ${coverageReviewCount} 个保障待复核` : ''}</span>}
         </div>
         {goalPlans.length === 0 ? (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1537,71 +1605,39 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-3 gap-2 text-center mb-3">
-              <MiniStat label={`近 ${recentMonths.length} 条记录平均结余`} value={fmtWan(recentAvgSaved)} c={recentAvgSaved >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
-              <MiniStat label="优先目标每月需准备" value={fmtWan(totalMonthlyNeed)} c="text-indigo-600" />
-              <MiniStat label={overdueGoalCount > 0 ? '当前状态' : goalMonthlyBalance >= 0 ? '每月可剩余' : '每月资金缺口'}
-                value={overdueGoalCount > 0 ? `${overdueGoalCount} 个已到期` : fmtWan(Math.abs(goalMonthlyBalance))}
-                c={overdueGoalCount > 0 || goalMonthlyBalance < 0 ? 'text-rose-600' : 'text-emerald-600'} />
+            <div className="mb-3">
+              <p className={`text-lg font-semibold ${overdueGoalCount > 0 || goalMonthlyBalance < 0 ? 'text-rose-700' : 'text-slate-800'}`}>
+                {overdueGoalCount > 0 ? `${overdueGoalCount} 个目标已到期，需先复核计划` : fundedGoalPlans.length === 0 ? '当前没有需要同时推进的资金计划' : `按当前金额计划，每月${goalMonthlyBalance >= 0 ? '预计剩余' : '预计缺口'} ${fmtWan(Math.abs(goalMonthlyBalance))}`}
+              </p>
+              <p className="text-sm text-slate-600 mt-1">近 {recentMonths.length} 条记录平均月结余 {fmtWan(recentAvgSaved)} · 目标每月需准备 {fmtWan(totalMonthlyNeed)}</p>
             </div>
-            {activeGoalPlans.length > 0 ? <div className="space-y-2">
-              {activeGoalPlans.slice(0, 3).map((goal) => (
-                <div key={goal.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                  <div className="flex items-center justify-between gap-3 text-sm"><span className="font-medium text-slate-700 truncate">{goal.name}{goal.goalType === 'emergency' ? ' · 应急资金' : ''}</span><span className="text-slate-500 shrink-0">{(goal.progress * 100).toFixed(1)}%</span></div>
-                  <div className="h-1.5 bg-slate-200 rounded-full overflow-hidden mt-1.5"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, goal.progress * 100)}%` }} /></div>
-                  <div className="flex flex-wrap justify-between gap-1 text-xs text-slate-400 mt-1.5"><span>{goal.goalType === 'emergency' ? `覆盖 ${goal.coverageMonths == null ? '—' : goal.coverageMonths.toFixed(1)}／${goal.coverageMonthsTarget} 个月` : `还差 ${fmtWan(goal.gap)}`} · 目标 {goal.targetDate}</span><span className={goal.gap === 0 && goal.coverageShortfall ? 'text-amber-700' : goal.monthlyNeed == null ? 'text-rose-600' : 'text-indigo-600'}>{goal.gap === 0 && goal.coverageShortfall ? '金额已达成 · 保障待复核' : goal.monthlyNeed == null ? '已到期' : `每月需 ${fmtWan(goal.monthlyNeed)}`}</span></div>
-                </div>
-              ))}
-              {activeGoalPlans.length > 3 && <p className="text-xs text-slate-400">另有 {activeGoalPlans.length - 3} 个未完成或待复核的目标，请到「家庭目标」查看。</p>}
+            {activeGoalPlans.length > 0 ? <div aria-label="重点家庭目标" className="divide-y divide-slate-100">
+              {activeGoalPlans.slice(0, 2).map((goal) => {
+                const isEmergency = goal.goalType === 'emergency';
+                const displayedProgress = isEmergency ? (goal.coverageMonths == null ? null : goal.coverageMonths / goal.coverageMonthsTarget) : goal.progress;
+                return <div key={goal.id} className="py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-1 text-sm">
+                    <span className="font-medium text-slate-800 break-words">{goal.name}</span>
+                    <span className={`shrink-0 font-medium ${goal.coverageShortfall ? 'text-amber-800' : 'text-slate-700'}`}>{isEmergency ? `保障 ${goal.coverageMonths == null ? '—' : goal.coverageMonths.toFixed(1)}／${goal.coverageMonthsTarget} 个月` : `${(goal.progress * 100).toFixed(1)}%`}</span>
+                  </div>
+                  <div role="progressbar" aria-label={`${goal.name}${isEmergency ? '保障进度' : '金额进度'}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={displayedProgress == null ? undefined : Math.min(100, displayedProgress * 100)} aria-valuetext={isEmergency ? `可覆盖 ${goal.coverageMonths == null ? '暂无法估算' : `${goal.coverageMonths.toFixed(1)} 个月`}，目标 ${goal.coverageMonthsTarget} 个月` : `${(goal.progress * 100).toFixed(1)}%`} className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-2">
+                    <div className={`h-full rounded-full ${goal.coverageShortfall ? 'bg-amber-500' : 'bg-indigo-600'}`} style={{ width: `${displayedProgress == null ? 0 : Math.min(100, displayedProgress * 100)}%` }} />
+                  </div>
+                  <div className="flex flex-wrap justify-between gap-1 text-xs text-slate-600 mt-2">
+                    <span>{isEmergency ? `已准备 ${fmtWan(goal.currentAmount)} · 金额目标 ${fmtWan(goal.targetAmount)}` : `还差 ${fmtWan(goal.gap)}`} · 目标 {goal.targetDate}</span>
+                    <span className={goal.coverageShortfall ? 'text-amber-800' : goal.monthlyNeed == null ? 'text-rose-700' : 'text-slate-700'}>{isEmergency && goal.coverageMonths == null ? '缺少有效支出，保障待核对' : goal.gap === 0 && goal.coverageShortfall ? '金额已达成，保障仍不足' : goal.monthlyNeed == null ? '已到期' : `每月需 ${fmtWan(goal.monthlyNeed)}`}</span>
+                  </div>
+                </div>;
+              })}
+              {activeGoalPlans.length > 2 && <p className="text-sm text-slate-600 pt-3">另有 {activeGoalPlans.length - 2} 个未完成或待复核目标，可在家庭目标中查看。</p>}
             </div> : <p className="text-sm text-emerald-600">所有家庭目标均已完成。</p>}
             <div className="flex items-start justify-between gap-3 mt-2">
-              <p className="text-xs text-slate-400">仅汇总“优先”和“正常”目标，按同时推进计算；平均结余取最近 12 条已有记录，不计目标资金未来收益。</p>
-              <button onClick={() => setTab('goals')} className="shrink-0 text-xs text-indigo-600">管理目标</button>
+              <p className="text-xs text-slate-600 leading-5">按全部「优先」和「正常」目标同时推进估算，不只统计上面两项；平均结余取最近最多 12 条已有记录，不计未来收益。</p>
+              <button onClick={() => setTab('goals')} className="shrink-0 min-h-10 px-2 text-sm text-indigo-700 rounded-lg hover:bg-indigo-50">管理目标</button>
             </div>
           </>
         )}
-      </div>
-
-      <div className={`${trustItems.length > 0 ? 'p-4' : 'px-4 py-3'} bg-white rounded-xl border border-slate-200`}>
-        <div className="flex items-center gap-2 font-semibold mb-3">
-          {attentionItems.length > 0
-            ? <AlertTriangle className="w-5 h-5 text-amber-600" />
-            : <Info className="w-5 h-5 text-emerald-600" />}
-          {latest.month} 财务关注
-          <span className={`ml-auto text-xs font-medium ${attentionItems.length > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-            {attentionItems.length > 0 ? `${attentionItems.length} 项` : '状态平稳'}
-          </span>
-        </div>
-        {attentionItems.length > 0 ? (
-          <div className="grid sm:grid-cols-2 gap-2">
-            {attentionItems.map((item) => (
-              <div key={item.title} className={`rounded-lg border p-3 ${item.tone === 'rose' ? 'bg-rose-50 border-rose-100' : 'bg-amber-50 border-amber-100'}`}>
-                <div className={`text-sm font-medium ${item.tone === 'rose' ? 'text-rose-700' : 'text-amber-700'}`}>{item.title}</div>
-                <p className="text-xs text-slate-600 mt-1 leading-5">{item.detail}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="text-sm text-slate-600">本月未触发需要优先关注的项目，继续按当前节奏完成下月结账。</p>
-        )}
-        <p className="text-xs text-slate-400 mt-2">提示规则：负结余、结余为正但净资产下降、现金缓冲低于{primaryEmergencyGoal ? `家庭目标 ${emergencyCoverageTarget} 个月` : '默认 3 个月'}、负债增加或单一投资账户占比超过 50%。</p>
-      </div>
-
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="flex items-center gap-2 font-semibold mb-2">
-          <ListChecks className="w-5 h-5 text-indigo-600" />数据可信度核对
-          <span className={`ml-auto text-xs font-medium ${trustItems.length > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{trustItems.length > 0 ? `${trustItems.length} 项待核对` : '未发现异常'}</span>
-        </div>
-        {trustItems.length > 0 ? <div className="grid sm:grid-cols-2 gap-2">
-          {trustItems.map((item) => (
-            <div key={item.title} className={`rounded-lg border p-3 ${item.tone === 'rose' ? 'bg-rose-50 border-rose-100' : item.tone === 'amber' ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-200'}`}>
-              <div className={`text-sm font-medium ${item.tone === 'rose' ? 'text-rose-700' : item.tone === 'amber' ? 'text-amber-700' : 'text-slate-600'}`}>{item.title}</div>
-              <p className="text-xs text-slate-500 mt-1 leading-5">{item.detail}</p>
-            </div>
-          ))}
-        </div> : null}
-        {trustItems.length > 0 && <p className="text-xs text-slate-400 mt-2">这里只列出可核对事实，不对家庭财务质量打分。</p>}
-      </div>
+      </section>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center justify-between mb-2">
@@ -1612,47 +1648,58 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           <div className="bg-indigo-600 h-3 rounded-full" style={{ width: `${hasFireExpenseData ? Math.min(100, fire.progress * 100) : 0}%` }} />
         </div>
         {!hasFireExpenseData && <p className="mt-3 text-sm text-slate-600">缺少有效支出数据，暂无法估算。请先完成月度支出录入；近期平均支出为零或负数时，不判断财务自由是否达成。</p>}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3 text-center">
-          <MiniStat label="还差投资本金" value={hasFireExpenseData ? fmtWan(fire.remaining) : '—'} c={!hasFireExpenseData ? 'text-slate-500' : fire.remaining > 0 ? 'text-indigo-600' : 'text-emerald-600'} />
-          <MiniStat label="年被动收入缺口" value={hasFireExpenseData ? fmtWan(fire.passiveGap) : '—'} c={!hasFireExpenseData ? 'text-slate-500' : fire.passiveGap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
-          <MiniStat label="每年可覆盖支出" value={hasFireExpenseData ? `${fire.coverageMonths.toFixed(1)}个月` : '—'} c={hasFireExpenseData ? 'text-sky-600' : 'text-slate-500'} />
-          <MiniStat label="预计还需时间" value={!hasFireExpenseData || fire.years == null ? '暂无法估算' : fire.years === 0 ? '已达成' : `约 ${fire.years.toFixed(1)} 年`} c={!hasFireExpenseData || fire.years == null ? 'text-slate-500' : 'text-indigo-600'} />
-        </div>
-        <div className="mt-3 text-xs text-slate-500 space-y-1">
-          <p>投资本金 {fmtWan(latest.invest)} × 提取率 {withdrawalRate}% = 年被动收入 {fmtWan(fire.passive)}</p>
-          {hasFireExpenseData && <p>目标数字 {fmtWan(fire.target)}（年支出 ÷ 提取率，分母不含自住房）· <span className="text-indigo-600 font-medium">{yearsText}</span></p>}
-          <p>预计时间按最近 {Math.min(12, series.length)} 条已有记录的平均结余线性推算，不计未来投资收益和支出变化。</p>
-        </div>
-        <div className="flex items-center gap-2 mt-3">
-          <span className="text-xs text-slate-500">提取率</span>
-          <input type="range" min="3" max="6" step="0.5" value={withdrawalRate}
-            onChange={(e) => setWithdrawalRate(Number(e.target.value))} className="flex-1 accent-indigo-600" />
-          <span className="text-xs font-medium w-10 text-right">{withdrawalRate}%</span>
-        </div>
-        <p className="text-xs text-slate-400 mt-1">当前提取率{rateHint}。提取率越高，进度越好看，但长期可持续性越低。</p>
-        {moreOpen && <div className="mt-4 pt-3 border-t border-slate-100">
-          <div className="text-sm font-medium text-slate-700 mb-2">情景推演 · 复利与支出增长</div>
-          <div className="grid sm:grid-cols-3 gap-2">
-            {fireScenarios.map((scenario) => (
-              <div key={scenario.name} className={`rounded-lg border p-3 ${scenario.tone}`}>
-                <div className="flex items-center justify-between"><span className="text-sm font-medium text-slate-700">{scenario.name}</span><span className="text-xs text-slate-500">收益 {(scenario.annualReturn * 100).toFixed(0)}%</span></div>
-                <div className="text-lg font-bold text-indigo-600 mt-1">{!hasFireExpenseData ? '暂无法估算' : scenario.result ? scenario.result.months === 0 ? '已覆盖目标' : `约 ${(scenario.result.months / 12).toFixed(1)} 年` : '暂无法达成'}</div>
-                <p className="text-xs text-slate-500 mt-1">{!hasFireExpenseData ? '缺少有效支出数据' : scenario.result ? '按当前月结余持续投入' : '80 年内未达到'} · 支出年增 {(scenario.expenseGrowth * 100).toFixed(0)}%</p>
-              </div>
-            ))}
-          </div>
-          <p className="text-xs text-slate-400 mt-2">以上仅用于观察假设变化的影响：按当前月结余持续投入、收益按月复利、生活支出持续增长；未计税费、投资波动和家庭计划变化，不是收益承诺。</p>
-        </div>}
+        <dl className="grid grid-cols-2 gap-4 mt-4">
+          <div><dt className="text-sm text-slate-600">还差投资本金</dt><dd className="mt-1 text-xl font-bold text-slate-800">{hasFireExpenseData ? fmtWan(fire.remaining) : '—'}</dd></div>
+          <div><dt className="text-sm text-slate-600">每年可覆盖支出</dt><dd className="mt-1 text-xl font-bold text-slate-800">{hasFireExpenseData ? `${fire.coverageMonths.toFixed(1)}个月` : '—'}</dd></div>
+        </dl>
+        <p className="text-sm text-slate-600 mt-3">按当前提取率 {withdrawalRate}% 估算，不代表已获得的投资收入。</p>
       </div>
 
       <button onClick={() => setMoreOpen((v) => !v)}
+        aria-expanded={moreOpen} aria-controls="overview-deep-analysis"
         className="w-full bg-white rounded-xl px-4 py-3 border border-slate-200 flex items-center justify-between text-sm font-semibold text-slate-700">
         <span>{moreOpen ? '收起深度分析' : '展开深度分析'}</span>
         <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${moreOpen ? 'rotate-180' : ''}`} />
       </button>
 
       {moreOpen && (
-        <div className="space-y-4">
+        <div id="overview-deep-analysis" className="space-y-4">
+          <style>{`@container monthly-chart (width < ${monthlyChartMinWidth}px) { .monthly-chart-scroll-hint[data-chart-scroll-hint] { display: block; } }`}</style>
+          <section aria-labelledby="fire-detail-title" className="bg-white rounded-xl p-4 border border-slate-200">
+            <h2 id="fire-detail-title" className="font-semibold">财务自由估算详情</h2>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 mt-3">
+              <div><dt className="text-sm text-slate-600">目标投资本金</dt><dd className="font-semibold text-slate-800 mt-1">{hasFireExpenseData ? fmtWan(fire.target) : '—'}</dd></div>
+              <div><dt className="text-sm text-slate-600">估算年可提取金额</dt><dd className="font-semibold text-slate-800 mt-1">{fmtWan(fire.passive)}</dd></div>
+              <div><dt className="text-sm text-slate-600">年支出覆盖缺口</dt><dd className="font-semibold text-slate-800 mt-1">{hasFireExpenseData ? fmtWan(fire.passiveGap) : '—'}</dd></div>
+              <div><dt className="text-sm text-slate-600">预计还需时间</dt><dd className="font-semibold text-slate-800 mt-1">{!hasFireExpenseData || fire.years == null ? '暂无法估算' : fire.years === 0 ? '已达成' : `约 ${fire.years.toFixed(1)} 年`}</dd></div>
+            </dl>
+            <div className="mt-3 text-sm text-slate-600 space-y-1 leading-6">
+              <p>投资本金 {fmtWan(latest.invest)} × 提取率 {withdrawalRate}% = 估算年可提取金额 {fmtWan(fire.passive)}。</p>
+              <p>目标投资本金按年支出 ÷ 提取率计算，不含自住房；时间按最近 {Math.min(12, series.length)} 条已有记录的平均结余线性推算，不计未来投资收益和支出变化。</p>
+              {(!hasFireExpenseData || fire.years == null) && <p>{yearsText}。</p>}
+            </div>
+            <div className="flex items-center gap-3 mt-4">
+              <label htmlFor="overview-withdrawal-rate" className="text-sm text-slate-600">提取率</label>
+              <input id="overview-withdrawal-rate" type="range" min="3" max="6" step="0.5" value={withdrawalRate}
+                onChange={(e) => setWithdrawalRate(Number(e.target.value))} className="flex-1 min-w-0 accent-indigo-600" />
+              <span className="text-sm font-medium w-10 text-right">{withdrawalRate}%</span>
+            </div>
+            <p className="text-sm text-slate-600 mt-2">当前提取率{rateHint}。提取率越高，进度越好看，但长期可持续性越低。</p>
+            <div className="mt-4 pt-3 border-t border-slate-200">
+              <h3 className="text-sm font-semibold text-slate-700 mb-2">情景推演 · 复利与支出增长</h3>
+              <div className="grid sm:grid-cols-3 gap-3">
+                {fireScenarios.map((scenario) => (
+                  <div key={scenario.name} className="border-l-2 border-indigo-200 pl-3 py-1">
+                    <div className="text-sm font-medium text-slate-700">{scenario.name}情景</div>
+                    <div className="text-lg font-bold text-slate-800 mt-1">{!hasFireExpenseData ? '暂无法估算' : scenario.result ? scenario.result.months === 0 ? '已覆盖目标' : `约 ${(scenario.result.months / 12).toFixed(1)} 年` : '暂无法达成'}</div>
+                    <p className="text-sm text-slate-600 mt-1">假设年收益 {(scenario.annualReturn * 100).toFixed(0)}% · 支出年增 {(scenario.expenseGrowth * 100).toFixed(0)}%</p>
+                    <p className="text-xs text-slate-600 mt-1">{!hasFireExpenseData ? '缺少有效支出数据' : scenario.result ? '按当前月结余持续投入' : '80 年内未达到'}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-sm text-slate-600 mt-3 leading-6">以上仅用于观察假设变化的影响：按当前月结余持续投入、收益按月复利、生活支出持续增长；未计税费、投资波动和家庭计划变化，不是收益承诺。</p>
+            </div>
+          </section>
           <div className={`rounded-xl p-4 border ${cashflow.disposable < 0 ? 'bg-rose-50 border-rose-200' : 'bg-white border-slate-200'}`}>
             <div className="flex items-center gap-2 font-semibold mb-3">
               <CalendarClock className="w-5 h-5 text-indigo-600" />固定支出覆盖预估
@@ -1665,7 +1712,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
               <div><div className="text-xs text-slate-500">固定支出</div><div className="font-bold text-slate-700">{fmtWan(cashflow.fixedExp)}</div></div>
               <div><div className="text-xs text-slate-500">固定支出后余额</div><div className={`font-bold ${cashflow.disposable < 0 ? 'text-rose-600' : 'text-indigo-600'}`}>{fmtWan(cashflow.disposable)}</div></div>
             </div>
-            <p className="text-xs text-slate-400 mt-2">这里只衡量固定支出覆盖能力，不含日常开销等浮动支出，也不计入净资产。</p>
+            <p className="text-sm text-slate-600 mt-2">这里只衡量固定支出覆盖能力，不含日常开销等浮动支出，也不计入净资产。</p>
           </div>
           <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center gap-2 font-semibold mb-1">
@@ -1674,7 +1721,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           )}
           <span>资产占比{expandCat ? ` · ${CATS[expandCat]}` : '（按大类）'}</span>
         </div>
-        {!expandCat && <p className="text-xs text-slate-400 mb-1">点击扇区可展开查看该类下的账户</p>}
+        {!expandCat && <p className="text-sm text-slate-600 mb-1">点击扇区可展开查看该类下的账户</p>}
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
@@ -1692,14 +1739,14 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             <div key={i} className="flex items-center gap-1.5 text-xs">
               <span className="w-2.5 h-2.5 rounded-sm" style={{ background: COLORS[i % COLORS.length] }} />
               <span className="text-slate-600">{d.name}</span>
-              <span className="text-slate-400">{fmtYuan(d.value)} · {pieTotal ? (d.value / pieTotal * 100).toFixed(1) : 0}%</span>
+              <span className="text-slate-600">{fmtYuan(d.value)} · {pieTotal ? (d.value / pieTotal * 100).toFixed(1) : 0}%</span>
             </div>
           ))}
         </div>
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-sm text-slate-500">图表范围</span>
+        <span className="text-sm text-slate-600">图表范围</span>
         <div className="flex gap-1 bg-white rounded-lg p-1 border border-slate-200">
           {[{ k: '1y', l: '最近12条' }, { k: 'all', l: '全部' }].map((r) => (
             <button key={r.k} onClick={() => setRange(r.k)}
@@ -1707,7 +1754,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           ))}
         </div>
       </div>
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-600">
         <span>当前区间：{chartRangeLabel}</span>
         {missingChartMonths.length > 0 && <span className="text-amber-600">缺少月份：{missingChartMonths.join('、')}（按现有记录计算）</span>}
       </div>
@@ -1716,7 +1763,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
             <div className="font-semibold">净资产趋势（万元）</div>
-            <p className="text-xs text-slate-400 mt-0.5">负债以虚线辅助显示</p>
+            <p className="text-sm text-slate-600 mt-0.5">负债以虚线辅助显示</p>
           </div>
           <div className={`text-sm font-semibold ${periodGrowth >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
             区间 {wanSign(periodGrowth)}
@@ -1742,15 +1789,27 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
         </div>
       </div>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">收入、支出与结余趋势（万元）</div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3 text-center">
-          <MiniStat label="平均月收入" value={fmtWan(cashTotals.income / cashMonthCount)} c="text-emerald-600" />
-          <MiniStat label="平均月支出" value={fmtWan(cashTotals.expense / cashMonthCount)} c="text-amber-600" />
-          <MiniStat label="平均月结余" value={fmtWan(cashTotals.saved / cashMonthCount)} c={cashTotals.saved >= 0 ? 'text-indigo-600' : 'text-rose-600'} />
-          <MiniStat label="区间储蓄率" value={periodSavingsRate == null ? '—' : (periodSavingsRate * 100).toFixed(1) + '%'} c={periodSavingsRate == null || periodSavingsRate >= 0 ? 'text-indigo-600' : 'text-rose-600'} />
+      <section aria-labelledby="cashflow-trend-title" className="bg-white rounded-xl p-4 border border-slate-200" style={{ containerType: 'inline-size', containerName: 'monthly-chart' }}>
+        <h2 id="cashflow-trend-title" className="font-semibold mb-2">收入、支出与结余趋势（万元）</h2>
+        {cashTrend.slice(-1).map((item) => <div key={item.fullMonth} className="mb-3">
+          <div className="text-sm font-medium text-slate-700">最近一期 · {item.fullMonth}</div>
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 mt-2">
+            <div><dt className="text-sm text-slate-600">收入</dt><dd className="font-semibold text-slate-800">{fmtWan(item.收入金额)}</dd></div>
+            <div><dt className="text-sm text-slate-600">支出</dt><dd className="font-semibold text-slate-800">{fmtWan(item.支出金额)}</dd></div>
+            <div><dt className="text-sm text-slate-600">结余</dt><dd className={`font-semibold ${item.结余金额 < 0 ? 'text-rose-700' : 'text-slate-800'}`}>{fmtWan(item.结余金额)}</dd></div>
+            <div><dt className="text-sm text-slate-600">储蓄率</dt><dd className={`font-semibold ${item.储蓄率 != null && item.储蓄率 < 0 ? 'text-rose-700' : 'text-slate-800'}`}>{item.储蓄率 == null ? '—' : (item.储蓄率 * 100).toFixed(1) + '%'}</dd></div>
+          </dl>
+        </div>)}
+        <div className="border-t border-slate-200 pt-3 mb-3">
+          <div className="text-sm font-medium text-slate-700 mb-2">当前区间 · {chartData.length} 条记录汇总</div>
+          <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-sm text-slate-600">
+            <div><dt>平均月收入</dt><dd>{fmtWan(cashTotals.income / cashMonthCount)}</dd></div>
+            <div><dt>平均月支出</dt><dd>{fmtWan(cashTotals.expense / cashMonthCount)}</dd></div>
+            <div><dt>平均月结余</dt><dd className={cashTotals.saved < 0 ? 'text-rose-700' : ''}>{fmtWan(cashTotals.saved / cashMonthCount)}</dd></div>
+            <div><dt>区间储蓄率</dt><dd className={periodSavingsRate != null && periodSavingsRate < 0 ? 'text-rose-700' : ''}>{periodSavingsRate == null ? '—' : (periodSavingsRate * 100).toFixed(1) + '%'}</dd></div>
+          </dl>
         </div>
-        <div className="overflow-x-auto">
+        <div role="region" aria-label="现金流趋势图" tabIndex="0" className="overflow-x-auto">
           <div className="h-60" style={{ minWidth: `${monthlyChartMinWidth}px` }}>
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={cashTrend} margin={{ top: 24, bottom: 18 }}>
@@ -1773,12 +1832,13 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             </ResponsiveContainer>
           </div>
         </div>
-        <p className="text-xs text-slate-400 mt-1">结余柱使用左轴，紫色虚线储蓄率使用右轴；收入为 0 的月份不计算储蓄率。区间储蓄率按总结余 ÷ 总收入计算。</p>
-      </div>
+        <p data-chart-scroll-hint className="monthly-chart-scroll-hint hidden text-sm text-slate-600 mt-2">左右滑动图表，查看全部月份。</p>
+        <p className="text-sm text-slate-600 mt-2">结余柱使用左轴，紫色虚线储蓄率使用右轴；收入为 0 的月份不计算储蓄率。区间储蓄率按总结余 ÷ 总收入计算。</p>
+      </section>
 
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">净资产增长来源（万元）</div>
-        <div className="overflow-x-auto">
+      <section aria-labelledby="growth-trend-title" className="bg-white rounded-xl p-4 border border-slate-200" style={{ containerType: 'inline-size', containerName: 'monthly-chart' }}>
+        <h2 id="growth-trend-title" className="font-semibold mb-2">净资产增长来源（万元）</h2>
+        <div role="region" aria-label="净资产增长来源图" tabIndex="0" className="overflow-x-auto">
           <div className="h-60" style={{ minWidth: `${monthlyChartMinWidth}px` }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={growthTrend} stackOffset="sign" margin={{ top: 24, bottom: 18 }}>
@@ -1798,7 +1858,8 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             </ResponsiveContainer>
           </div>
         </div>
-        <p className="text-xs text-slate-400 mt-1 flex items-start gap-1"><Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />“非收支变化”由净资产变化减去当月结余反推，可能包含投资涨跌、房产估值、负债调整、账户增删或余额修正。</p>
+        <p data-chart-scroll-hint className="monthly-chart-scroll-hint hidden text-sm text-slate-600 mt-2">左右滑动图表，查看全部月份。</p>
+        <p className="text-sm text-slate-600 mt-2 flex items-start gap-1"><Info className="w-4 h-4 shrink-0 mt-0.5" />“非收支变化”由净资产变化减去当月结余反推，可能包含投资涨跌、房产估值、负债调整、账户增删或余额修正。</p>
         {latest.netChange != null && (
           <div className="mt-3 pt-3 border-t border-slate-100">
             <div className="text-sm font-medium text-slate-700 mb-1">{latest.month} 变化解释</div>
@@ -1814,20 +1875,15 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
                 ))}
               </div>
             )}
-            <p className="text-xs text-slate-400 mt-2">主要变化账户按对净资产的影响排序；负债减少记为正贡献，负债增加记为负贡献。</p>
+            <p className="text-sm text-slate-600 mt-2">主要变化账户按对净资产的影响排序；负债减少记为正贡献，负债增加记为负贡献。</p>
           </div>
         )}
-      </div>
+      </section>
 
-        </div>
-      )}
-
-      {moreOpen && (
-        <div className="space-y-4">
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="font-semibold mb-1">行动复盘</div>
-            <p className="text-xs text-slate-400 mb-3">完成状态来自手工勾选；关联指标仅展示同期结果，不判断行动是否导致了变化。</p>
-            {actionReviews.length === 0 ? <p className="text-sm text-slate-400">暂无行动历史，请先在月度结账中记录下月行动。</p> : <>
+            <p className="text-sm text-slate-600 mb-3">完成状态来自手工勾选；关联指标仅展示同期结果，不判断行动是否导致了变化。</p>
+            {actionReviews.length === 0 ? <p className="text-sm text-slate-600">暂无行动历史，请先在月度结账中记录下月行动。</p> : <>
               <div className="grid grid-cols-3 gap-2 text-center mb-3">
                 <MiniStat label="已记录行动" value={`${actionReviews.length} 项`} c="text-slate-700" />
                 <MiniStat label="行动完成率" value={`${(completedActions.length / actionReviews.length * 100).toFixed(0)}%`} c="text-indigo-600" />
@@ -1847,28 +1903,28 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="font-semibold mb-1">成员归属摘要 · {latest.month}</div>
-            <p className="text-xs text-slate-400 mb-3">按账户管理中的成员归属汇总最新月份数据</p>
+            <p className="text-sm text-slate-600 mb-3">按账户管理中的成员归属汇总 {latest.month} 的记录</p>
             <div className="grid sm:grid-cols-3 gap-3">
               {memberSummary.map((summary) => (
                 <div key={summary.member} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
                   <div className="font-medium text-slate-700 mb-2">{summary.member}</div>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                    <div><div className="text-slate-400">净资产</div><div className="font-medium text-indigo-600">{fmtWan(summary.netWorth)}</div></div>
-                    <div><div className="text-slate-400">总负债</div><div className="font-medium text-rose-600">{fmtWan(summary.liabilities)}</div></div>
-                    <div><div className="text-slate-400">本月收入</div><div className="font-medium text-emerald-600">{fmtWan(summary.income)}</div></div>
-                    <div><div className="text-slate-400">本月支出</div><div className="font-medium text-amber-600">{fmtWan(summary.expenses)}</div></div>
+                    <div><div className="text-slate-600">净资产</div><div className="font-medium text-slate-800">{fmtWan(summary.netWorth)}</div></div>
+                    <div><div className="text-slate-600">总负债</div><div className="font-medium text-slate-800">{fmtWan(summary.liabilities)}</div></div>
+                    <div><div className="text-slate-600">当期收入</div><div className="font-medium text-slate-800">{fmtWan(summary.income)}</div></div>
+                    <div><div className="text-slate-600">当期支出</div><div className="font-medium text-slate-800">{fmtWan(summary.expenses)}</div></div>
                   </div>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-slate-400 mt-2">仅用于核对账户归属；共同支出不会拆分到夫妻名下，不代表个人贡献或实际分摊。</p>
+            <p className="text-sm text-slate-600 mt-2">仅用于核对账户归属；共同支出不会拆分到夫妻名下，不代表个人贡献或实际分摊。</p>
           </div>
 
           <div className="bg-white rounded-xl p-4 border border-slate-200">
             <div className="font-semibold mb-1">资产结构变化</div>
-            <p className="text-xs text-slate-400 mb-2">现金、投资与固定资产占资产总额的比例</p>
+            <p className="text-sm text-slate-600 mb-2">现金、投资与固定资产占资产总额的比例</p>
             {assetTrend.length < 6 ? (
-              <div className="h-32 flex items-center justify-center text-sm text-slate-400">至少需要6个月数据才能观察结构趋势</div>
+              <div className="h-32 flex items-center justify-center text-sm text-slate-600">至少需要6个月数据才能观察结构趋势</div>
             ) : (
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
