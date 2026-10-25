@@ -11,6 +11,34 @@
   html, body { margin: 0; -webkit-tap-highlight-color: transparent; }
   body { padding-bottom: env(safe-area-inset-bottom); background: #f1f5f9; }
   header { padding-top: env(safe-area-inset-top); }
+  .finance-app { --ui-ink: #1e293b; --ui-muted: #64748b; --ui-line: #e2e8f0; --ui-accent: #4f46e5; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; font-size: 14px; line-height: 1.5; }
+  .finance-app .text-xs, .finance-app [class~="text-[10px]"], .finance-app [class~="text-[11px]"] { font-size: 13px; line-height: 1.5; }
+  .finance-app .text-slate-400 { color: var(--ui-muted); }
+  .finance-app button { min-height: 44px; transition: background-color 150ms, border-color 150ms, color 150ms; }
+  .finance-app button.min-w-10 { min-width: 44px; }
+  .finance-app button:focus-visible, .finance-app summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+  .finance-app input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), .finance-app select { min-height: 44px; }
+  .finance-app input, .finance-app select, .finance-app textarea { accent-color: var(--ui-accent); }
+  .finance-app input:focus-visible, .finance-app select:focus-visible, .finance-app textarea:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 1px; }
+  .finance-app .ui-number, .finance-app input[inputmode="decimal"], .finance-app dd, .finance-app td:not(:first-child), .finance-app .font-bold { font-variant-numeric: tabular-nums; }
+  .finance-app .ui-section-title { font-size: 15px; font-weight: 600; color: var(--ui-ink); }
+  .finance-app .ui-button-primary, .finance-app .ui-button-secondary, .finance-app .ui-button-danger { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 9px 14px; border: 1px solid transparent; border-radius: 10px; font-size: 14px; font-weight: 500; }
+  .finance-app .ui-button-primary { color: #fff; background: var(--ui-accent); }
+  .finance-app .ui-button-primary:hover { background: #4338ca; }
+  .finance-app .ui-button-secondary { color: #475569; background: #fff; border-color: #cbd5e1; }
+  .finance-app .ui-button-secondary:hover { background: #f8fafc; }
+  .finance-app .ui-button-danger { color: #fff; background: #be123c; }
+  .finance-app .ui-button-danger:hover { background: #9f1239; }
+  .finance-app button:disabled { cursor: not-allowed; }
+  .finance-app .ui-dialog { width: 100%; max-height: calc(100dvh - 2rem); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--ui-line); border-radius: 16px; background: #fff; box-shadow: 0 24px 64px #0f172a26; }
+  .finance-app .ui-dialog-body { min-height: 0; padding: 20px; overflow-y: auto; overscroll-behavior: contain; }
+  .finance-app .ui-dialog-footer { flex-shrink: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding: 14px 20px; border-top: 1px solid var(--ui-line); background: #fff; }
+  .finance-app .recharts-cartesian-axis-tick-value { font-size: 12px; fill: var(--ui-muted); }
+  .finance-app .recharts-legend-item-text { font-size: 13px; }
+  .finance-app .recharts-text, .finance-app .recharts-label-list text { font-variant-numeric: tabular-nums; }
+  .finance-app .recharts-tooltip-wrapper { max-width: calc(100vw - 4rem); }
+  .finance-app .recharts-tooltip-wrapper[style*="visibility: hidden"] { transform: none !important; }
+  @media (prefers-reduced-motion: reduce) { .finance-app button { transition: none; } }
   #root.app-loading { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #64748b; font: 14px -apple-system, sans-serif; }
   @media (max-width: 640px) { input, select, textarea { font-size: 16px !important; } }
   .spin { width: 32px; height: 32px; border: 3px solid #e2e8f0; border-top-color: #6366f1; border-radius: 50%; animation: r 0.8s linear infinite; }
@@ -186,9 +214,9 @@ function BarValueLabel({ x = 0, y = 0, width = 0, height = 0, value, color = '#4
   const labelX = x + width / 2 + xOffset;
   const barTop = Math.min(y, y + height);
   const barBottom = Math.max(y, y + height);
-  const labelY = amount >= 0 ? barTop - 5 : barBottom + 12;
+  const labelY = amount >= 0 ? barTop - 6 : barBottom + 14;
   return (
-    <text x={labelX} y={labelY} textAnchor="middle" fill={color} fontSize="10"
+    <text x={labelX} y={labelY} textAnchor="middle" fill={color} fontSize="12" fontWeight="500"
       style={{ paintOrder: 'stroke', stroke: '#fff', strokeWidth: 3, strokeLinejoin: 'round', pointerEvents: 'none' }}>
       {chartWan(amount)}
     </text>
@@ -1017,9 +1045,9 @@ function FamilyFinance({ onChangePassword }) {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
+    <div className="finance-app min-h-screen bg-slate-100 text-slate-800">
       {!loadError && <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="max-w-[960px] mx-auto px-4 py-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <PiggyBank className="w-6 h-6 text-indigo-600" />
             <div className="min-w-0">
@@ -1030,7 +1058,7 @@ function FamilyFinance({ onChangePassword }) {
                 {saveStatus === 'error' && <span className="text-xs text-rose-600">本机保存失败</span>}
                 {saveStatus === 'conflict' && <span className="text-xs text-rose-600">保存已暂停</span>}
               </div>
-              <p className="text-[11px] leading-4 text-slate-400 truncate">{latestDataLabel}</p>
+              <p className="text-xs text-slate-500 truncate mt-0.5">{latestDataLabel}</p>
             </div>
           </div>
           <div ref={moreMenuRef} className="relative ml-auto">
@@ -1052,20 +1080,21 @@ function FamilyFinance({ onChangePassword }) {
           </div>
           <input ref={fileRef} type="file" accept=".json,application/json" onChange={prepareImport} className="hidden" />
         </div>
-        <div className="max-w-4xl mx-auto px-2 grid grid-cols-3 gap-1 sm:flex">
+        <nav aria-label="主导航" className="max-w-[960px] mx-auto px-4 grid grid-cols-3 gap-1 sm:flex">
           {primaryTabs.map((t) => {
             const Icon = t.icon;
             return (
               <button key={t.key} onClick={() => { setTab(t.key); setMoreMenuOpen(false); }}
-                className={`flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1 px-1 sm:px-3 py-2 text-xs sm:text-sm whitespace-nowrap border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-600 font-medium' : 'border-transparent text-slate-500'}`}>
+                aria-current={tab === t.key ? 'page' : undefined}
+                className={`flex items-center justify-center gap-1.5 px-1 sm:px-4 py-2 text-sm whitespace-nowrap border-b-2 ${tab === t.key ? 'border-indigo-600 text-indigo-700 font-semibold' : 'border-transparent text-slate-600 hover:bg-slate-50'}`}>
                 <Icon className="w-4 h-4" /> {t.label}
               </button>
             );
           })}
-        </div>
+        </nav>
       </header>}
 
-      <main tabIndex="-1" className="max-w-4xl mx-auto px-4 py-4 pb-16 outline-none">
+      <main tabIndex="-1" className="max-w-[960px] mx-auto px-4 py-4 sm:py-5 pb-16 outline-none">
         {storageIssue && <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 space-y-2">
           <h2 className="text-sm font-semibold text-rose-800">{storageIssue.status === 'conflict' ? '其他页面已更新数据，本页暂停保存' : '本机保存未成功，请先保护当前数据'}</h2>
           <p className="text-sm text-rose-700">{storageIssue.status === 'conflict' ? '本页仍显示打开时的数据。继续修改只保留在本页，请先导出副本，再重新加载最新数据。' : '当前修改暂时只保留在本页。请重试保存，或先导出当前数据；刷新、关闭页面可能丢失尚未保存的修改。'}</p>
@@ -1138,24 +1167,26 @@ function FamilyFinance({ onChangePassword }) {
 
       {resetOpen && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={resetDialogRef} role="dialog" aria-modal="true" aria-labelledby="reset-data-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={resetDialogRef} role="dialog" aria-modal="true" aria-labelledby="reset-data-title" tabIndex="-1" className="ui-dialog max-w-sm">
+            <div className="ui-dialog-body">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
               <h3 id="reset-data-title" className="font-semibold">重置数据</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">这两个操作都会覆盖当前本机数据。执行前建议先「导出」备份一份 JSON。</p>
-            <div className="space-y-2">
-              <button onClick={restoreDemo} className="w-full text-sm bg-slate-100 hover:bg-slate-200 rounded-lg py-2.5">恢复为演示数据</button>
-              <button onClick={clearAll} className="w-full text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg py-2.5">清空全部，从零开始</button>
-              <button data-dialog-autofocus onClick={() => setResetOpen(false)} className="w-full text-sm text-slate-500 hover:bg-slate-100 rounded-lg py-2.5">取消</button>
+            </div>
+            <div className="ui-dialog-footer flex-col">
+              <button data-dialog-autofocus onClick={() => setResetOpen(false)} className="ui-button-secondary w-full">取消</button>
+              <button onClick={restoreDemo} className="ui-button-secondary w-full">恢复为演示数据</button>
+              <button onClick={clearAll} className="ui-button-danger w-full">清空全部，从零开始</button>
             </div>
           </div>
         </div>
       )}
       {importPreview && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={importDialogRef} role="dialog" aria-modal="true" aria-labelledby="import-preview-title" tabIndex="-1" className="bg-white rounded-2xl max-w-md w-full shadow-xl max-h-[calc(100dvh-2rem)] flex flex-col overflow-hidden">
-            <div className="p-5 overflow-y-auto overscroll-contain min-h-0">
+          <div ref={importDialogRef} role="dialog" aria-modal="true" aria-labelledby="import-preview-title" tabIndex="-1" className="ui-dialog max-w-md">
+            <div className="ui-dialog-body">
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
                 <h3 id="import-preview-title" className="font-semibold">确认导入数据</h3>
@@ -1193,10 +1224,10 @@ function FamilyFinance({ onChangePassword }) {
             <p className="text-sm text-rose-700 bg-rose-50 rounded-lg p-3 mt-3">确认后将覆盖当前浏览器中的账户、月度记录、目标和相关设置。此操作无法直接撤销。</p>
             {importResult?.type === 'error' && <p role="alert" className="text-sm text-rose-700 mt-3">{importResult.message}</p>}
             </div>
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 border-t border-slate-100 px-5 py-4 shrink-0">
-              <button data-dialog-autofocus onClick={() => setImportPreview(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
-              {!loadError && <button onClick={exportData} className="px-4 py-2 text-sm border border-indigo-200 text-indigo-600 hover:bg-indigo-50 rounded-lg">先导出当前数据</button>}
-              <button onClick={confirmImport} disabled={storageIssue?.status === 'conflict'} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">确认覆盖并导入</button>
+            <div className="ui-dialog-footer">
+              <button data-dialog-autofocus onClick={() => setImportPreview(null)} className="ui-button-secondary">取消</button>
+              {!loadError && <button onClick={exportData} className="ui-button-secondary">先导出当前数据</button>}
+              <button onClick={confirmImport} disabled={storageIssue?.status === 'conflict'} className="ui-button-danger disabled:opacity-50 disabled:cursor-not-allowed">确认覆盖并导入</button>
             </div>
           </div>
         </div>
@@ -1221,16 +1252,16 @@ function OperationPageHeader({ tab, setTab }) {
     ? '按月份核对资产、负债、收入和支出，完成结账后再进入下一个月份。'
     : '管理家庭的资产、负债、收入和支出账户，账户设置会影响后续月度记录。';
   return (
-    <div className="bg-white rounded-xl p-4 border border-slate-200 mb-4">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+    <div className="bg-white rounded-xl px-4 py-3 border border-slate-200 mb-3">
+      <div className="flex items-start gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
           <div className="shrink-0 rounded-lg bg-indigo-50 p-2 text-indigo-600"><Icon className="w-5 h-5" /></div>
           <div className="min-w-0">
-            <h2 className="font-semibold text-slate-800">{title}</h2>
+            <h2 className="ui-section-title">{title}</h2>
             <p className="text-xs text-slate-500 mt-1">{description}</p>
           </div>
         </div>
-        <button onClick={() => setTab('overview')} className="self-start sm:self-auto shrink-0 flex items-center justify-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+        <button onClick={() => setTab('overview')} className="shrink-0 flex items-center justify-center gap-1.5 text-sm px-2 sm:px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
           <Home className="w-4 h-4" />返回总览
         </button>
       </div>
@@ -1250,7 +1281,7 @@ function DataStatusNotice({ latestMonth, lagMonths, isDraft, pendingCount, revie
             <p className="text-xs text-amber-700 mt-1">当前分析基于 {latestMonth} {isDraft ? `的录入中预览，还有 ${pendingCount} 项待处理。` : '的记录。'}{lagMonths > 0 ? ` 数据已滞后 ${lagMonths} 个月。` : ''}{reviewRequired ? ` 还有 ${reviewMonths.length} 个月份待复核，将从 ${reviewMonths[0]} 开始。` : !isDraft ? monthlyAction?.detail : ' 完成结账后才会锁定结果。'}</p>
           </div>
         </div>
-        <button onClick={() => setTab('closing')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700">{reviewRequired ? '去复核结账' : monthlyAction?.button || '去完成结账'}</button>
+        <button onClick={() => setTab('closing')} className="ui-button-primary shrink-0">{reviewRequired ? '去复核结账' : monthlyAction?.button || '去完成结账'}</button>
       </div>
     </div>
   );
@@ -1490,16 +1521,16 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
   return (
     <div className="space-y-4">
       <div className="grid md:grid-cols-2 gap-3">
-        <section aria-labelledby="asset-status-title" className="bg-white rounded-xl p-4 border border-slate-200">
+        <section aria-labelledby="asset-status-title" className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200">
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex p-1.5 rounded-lg text-indigo-600 bg-indigo-50"><Wallet className="w-4 h-4" /></span>
-            <h2 id="asset-status-title" className="text-sm font-semibold text-slate-700">资产状态</h2>
+            <h2 id="asset-status-title" className="ui-section-title">资产状态</h2>
             <span className="ml-auto text-xs text-slate-600">截至 {latestMonthLabel}末</span>
           </div>
-          <div className="flex items-end justify-between gap-3 mt-3">
-            <div>
+          <div className="flex flex-wrap items-end justify-between gap-2 mt-3">
+            <div className="min-w-0">
               <div className="text-xs text-slate-500">净资产</div>
-              <div className="text-3xl font-bold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.nw)}</div>
+              <div className="text-[32px] leading-tight tracking-tight font-bold text-slate-800 mt-1 ui-number break-all">{fmtWan(latest.nw)}</div>
             </div>
             {latest.netChange != null && (
               <div className={`text-xs font-medium rounded-full px-2.5 py-1 ${latest.netChange >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
@@ -1510,33 +1541,33 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
           <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-100">
             <div>
               <div className="text-sm text-slate-600">总资产</div>
-              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.assets)}</div>
+              <div className="text-lg font-semibold text-slate-800 mt-0.5 ui-number break-all">{fmtWan(latest.assets)}</div>
             </div>
             <div>
               <div className="text-sm text-slate-600">总负债</div>
-              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.liab)}</div>
+              <div className="text-lg font-semibold text-slate-800 mt-0.5 ui-number break-all">{fmtWan(latest.liab)}</div>
             </div>
           </div>
           <p className="text-xs text-slate-600 mt-2">现金 {fmtWan(latest.cash)} · 投资 {fmtWan(latest.invest)} · 固定资产 {fmtWan(latest.fixed)}</p>
         </section>
 
-        <section aria-labelledby="monthly-cashflow-title" className="bg-white rounded-xl p-4 border border-slate-200">
+        <section aria-labelledby="monthly-cashflow-title" className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200">
           <div className="flex items-center gap-2">
-            <span className="inline-flex p-1.5 rounded-lg text-amber-600 bg-amber-50"><PiggyBank className="w-4 h-4" /></span>
-            <h2 id="monthly-cashflow-title" className="text-sm font-semibold text-slate-700">{latestMonthLabel}现金流</h2>
+            <span className="inline-flex p-1.5 rounded-lg text-indigo-600 bg-indigo-50"><PiggyBank className="w-4 h-4" /></span>
+            <h2 id="monthly-cashflow-title" className="ui-section-title">{latestMonthLabel}现金流</h2>
           </div>
           <div className="mt-3">
             <div className="text-xs text-slate-600">本期结余</div>
-            <div className={`text-3xl font-bold mt-0.5 tabular-nums ${latest.saved >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtWan(latest.saved)}</div>
+            <div className={`text-[32px] leading-tight tracking-tight font-bold mt-1 ui-number break-all ${latest.saved >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{fmtWan(latest.saved)}</div>
           </div>
           <div className="grid grid-cols-2 gap-3 mt-4 pt-3 border-t border-slate-100">
             <div>
               <div className="text-sm text-slate-600">收入</div>
-              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.inc)}</div>
+              <div className="text-lg font-semibold text-slate-800 mt-0.5 ui-number break-all">{fmtWan(latest.inc)}</div>
             </div>
             <div>
               <div className="text-sm text-slate-600">支出</div>
-              <div className="text-base font-semibold text-slate-800 mt-0.5 tabular-nums">{fmtWan(latest.exp)}</div>
+              <div className="text-lg font-semibold text-slate-800 mt-0.5 ui-number break-all">{fmtWan(latest.exp)}</div>
             </div>
           </div>
         </section>
@@ -1544,7 +1575,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
       <section aria-labelledby="overview-change-title" className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center justify-between gap-3">
-          <h2 id="overview-change-title" className="text-sm font-semibold text-slate-800">本期变化解释</h2>
+          <h2 id="overview-change-title" className="ui-section-title">本期变化解释</h2>
           {previousMonth && <span className="text-xs text-slate-600">{previousMonth.month} → {latest.month}</span>}
         </div>
         {latest.netChange == null ? <p className="text-sm text-slate-600 mt-2">这是首条月末记录，尚无期初余额可用于解释净资产变化。</p> : <>
@@ -1562,7 +1593,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
       <section aria-labelledby="overview-attention-title" className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center gap-2">
           {attentionItems.length > 0 ? <AlertTriangle className="w-5 h-5 text-amber-700" /> : <Info className="w-5 h-5 text-slate-500" />}
-          <h2 id="overview-attention-title" className="font-semibold text-slate-800">{latestMonthLabel}财务关注</h2>
+          <h2 id="overview-attention-title" className="ui-section-title">{latestMonthLabel}财务关注</h2>
           <span className="ml-auto text-xs text-slate-600">{attentionItems.length > 0 ? `${attentionItems.length} 项` : '未触发提醒'}</span>
         </div>
         {attentionItems.length > 0 ? <>
@@ -1583,7 +1614,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
       <section aria-labelledby="overview-check-title" className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center gap-2">
           <ListChecks className="w-5 h-5 text-slate-600" />
-          <h2 id="overview-check-title" className="font-semibold text-slate-800">数据核对</h2>
+          <h2 id="overview-check-title" className="ui-section-title">数据核对</h2>
           <span className={`ml-auto text-xs ${criticalTrustItems.length ? 'text-rose-700' : 'text-slate-600'}`}>{criticalTrustItems.length > 0 ? `${criticalTrustItems.length} 项需处理` : '无关键缺项'}</span>
         </div>
         {criticalTrustItems.length > 0 && <div className="mt-3 divide-y divide-slate-100">{criticalTrustItems.map(renderTrustItem)}</div>}
@@ -1595,13 +1626,13 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
       <section aria-labelledby="overview-goals-title" className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
-          <h2 id="overview-goals-title" className="flex items-center gap-2 font-semibold text-slate-800"><Target className="w-5 h-5 text-indigo-600" />家庭目标与现金流</h2>
+          <h2 id="overview-goals-title" className="ui-section-title flex items-center gap-2"><Target className="w-5 h-5 text-indigo-600" />家庭目标与现金流</h2>
           {goalPlans.length > 0 && <span className="sm:ml-auto text-xs text-slate-600">{completedGoalCount} 个已完成 · {activeGoalPlans.length - coverageReviewCount} 个进行中{coverageReviewCount > 0 ? ` · ${coverageReviewCount} 个保障待复核` : ''}</span>}
         </div>
         {goalPlans.length === 0 ? (
           <div className="flex flex-col sm:flex-row sm:items-center gap-3">
             <p className="text-sm text-slate-500 flex-1">尚未设置家庭目标，暂时无法判断当前结余能否支撑想要的生活计划。</p>
-            <button onClick={() => setTab('goals')} className="shrink-0 text-sm px-3 py-2 rounded-lg bg-indigo-50 text-indigo-600 hover:bg-indigo-100">去设置目标</button>
+            <button onClick={() => setTab('goals')} className="ui-button-primary shrink-0">去设置目标</button>
           </div>
         ) : (
           <>
@@ -1618,7 +1649,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
                 return <div key={goal.id} className="py-3">
                   <div className="flex flex-wrap items-baseline justify-between gap-1 text-sm">
                     <span className="font-medium text-slate-800 break-words">{goal.name}</span>
-                    <span className={`shrink-0 font-medium ${goal.coverageShortfall ? 'text-amber-800' : 'text-slate-700'}`}>{isEmergency ? `保障 ${goal.coverageMonths == null ? '—' : goal.coverageMonths.toFixed(1)}／${goal.coverageMonthsTarget} 个月` : `${(goal.progress * 100).toFixed(1)}%`}</span>
+                    <span className={`shrink-0 font-semibold ui-number ${goal.coverageShortfall ? 'text-amber-800' : 'text-slate-700'}`}>{isEmergency ? `保障 ${goal.coverageMonths == null ? '—' : goal.coverageMonths.toFixed(1)}／${goal.coverageMonthsTarget} 个月` : `${(goal.progress * 100).toFixed(1)}%`}</span>
                   </div>
                   <div role="progressbar" aria-label={`${goal.name}${isEmergency ? '保障进度' : '金额进度'}`} aria-valuemin="0" aria-valuemax="100" aria-valuenow={displayedProgress == null ? undefined : Math.min(100, displayedProgress * 100)} aria-valuetext={isEmergency ? `可覆盖 ${goal.coverageMonths == null ? '暂无法估算' : `${goal.coverageMonths.toFixed(1)} 个月`}，目标 ${goal.coverageMonthsTarget} 个月` : `${(goal.progress * 100).toFixed(1)}%`} className="h-1.5 bg-slate-100 rounded-full overflow-hidden mt-2">
                     <div className={`h-full rounded-full ${goal.coverageShortfall ? 'bg-amber-500' : 'bg-indigo-600'}`} style={{ width: `${displayedProgress == null ? 0 : Math.min(100, displayedProgress * 100)}%` }} />
@@ -1633,7 +1664,7 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
             </div> : <p className="text-sm text-emerald-600">所有家庭目标均已完成。</p>}
             <div className="flex items-start justify-between gap-3 mt-2">
               <p className="text-xs text-slate-600 leading-5">按全部「优先」和「正常」目标同时推进估算，不只统计上面两项；平均结余取最近最多 12 条已有记录，不计未来收益。</p>
-              <button onClick={() => setTab('goals')} className="shrink-0 min-h-10 px-2 text-sm text-indigo-700 rounded-lg hover:bg-indigo-50">管理目标</button>
+              <button onClick={() => setTab('goals')} className="ui-button-secondary shrink-0">管理目标</button>
             </div>
           </>
         )}
@@ -1641,8 +1672,8 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2 font-semibold"><Target className="w-5 h-5 text-indigo-600" />财务自由进度</div>
-          <span className="text-2xl font-bold text-indigo-600">{hasFireExpenseData ? `${(fire.progress * 100).toFixed(1)}%` : '—'}</span>
+          <div className="ui-section-title flex items-center gap-2"><Target className="w-5 h-5 text-indigo-600" />财务自由进度</div>
+          <span className="text-2xl font-semibold text-slate-800 ui-number">{hasFireExpenseData ? `${(fire.progress * 100).toFixed(1)}%` : '—'}</span>
         </div>
         <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
           <div className="bg-indigo-600 h-3 rounded-full" style={{ width: `${hasFireExpenseData ? Math.min(100, fire.progress * 100) : 0}%` }} />
@@ -1951,11 +1982,11 @@ function Overview({ latest, chartData, series, fire, cashflow, withdrawalRate, s
 
 function ChartTooltipBox({ title, rows }) {
   return (
-    <div className="bg-white/95 border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-      <div className="font-medium text-slate-700 mb-1">{title}</div>
+    <div className="bg-white/95 border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs max-w-[calc(100vw-2rem)]">
+      <div className="font-medium text-slate-700 mb-1 break-words">{title}</div>
       <div className="space-y-1">
         {rows.map((row, i) => <div key={`${row.label}-${i}`} className="flex items-center justify-between gap-4">
-          <span className="text-slate-500">{row.label}</span><span className={row.className || 'text-slate-700'}>{row.value}</span>
+          <span className="text-slate-500 min-w-0 break-words">{row.label}</span><span className={`ui-number shrink-0 ${row.className || 'text-slate-700'}`}>{row.value}</span>
         </div>)}
       </div>
     </div>
@@ -2070,29 +2101,30 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
         const rows = accounts.filter((a) => a.type === sec.type && isActive(a));
         return (
           <div key={sec.type} className="bg-white rounded-xl p-4 border border-slate-200">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <span className="font-semibold">{sec.title}</span>
-                <span className="text-xs text-slate-400 ml-2">{sec.hint}</span>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div className="min-w-0">
+                <div className="ui-section-title">{sec.title}</div>
+                <p className="text-xs text-slate-500 mt-1">{sec.hint}</p>
               </div>
               <button onClick={() => setModal({ id: '', name: '', type: sec.type, category: 'cash', isFixed: false, fixedAmount: 0, member: '共同', active: true })}
-                className="flex items-center gap-1 text-xs text-indigo-600">
+                className="ui-button-secondary shrink-0 flex items-center gap-1.5">
                 <PlusCircle className="w-4 h-4" />新增
               </button>
             </div>
             <div className="divide-y divide-slate-100">
               {rows.map((a) => (
-                <div key={a.id} className="flex items-center justify-between py-2">
-                  <div className="min-w-0">
-                    <div className="font-medium text-sm truncate">{a.name}
-                      {a.type === 'asset' && <span className="ml-2 text-xs text-slate-400">{CATS[getAssetCategory(a)]}</span>}
-                      {a.type === 'expense' && a.isFixed && <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">固定 {a.fixedAmount}/月</span>}
+                <div key={a.id} className="flex items-center justify-between gap-2 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm break-words leading-5">{a.name}</div>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1">
+                      <span>{a.member}</span>
+                      {a.type === 'asset' && <span>{CATS[getAssetCategory(a)]}</span>}
+                      {a.type === 'expense' && a.isFixed && <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">固定 {a.fixedAmount}/月</span>}
                     </div>
-                    <div className="text-xs text-slate-400">{a.member}</div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-0.5">
                     <button onClick={() => setModal(a)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-600" title="编辑" aria-label={`编辑 ${a.name}`}><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-emerald-500 hover:bg-emerald-50 hover:text-emerald-600" title="停用" aria-label={`停用 ${a.name}`}><Power className="w-4 h-4" /></button>
+                    <button onClick={() => setConfirm({ mode: 'deactivate', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600" title="停用" aria-label={`停用 ${a.name}`}><Power className="w-4 h-4" /></button>
                     <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -2114,15 +2146,13 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
           {showInactive && (
             <div className="px-4 pb-3 divide-y divide-slate-100">
               {inactive.map((a) => (
-                <div key={a.id} className="flex items-center justify-between py-2 opacity-70">
-                  <div className="min-w-0">
-                    <div className="font-medium text-sm truncate">{a.name}
-                      <span className="ml-2 text-xs text-slate-400">{typeLabel[a.type]}{a.type === 'asset' ? ` · ${CATS[getAssetCategory(a)]}` : ''}</span>
-                    </div>
-                    <div className="text-xs text-slate-400">{a.member}</div>
+                <div key={a.id} className="flex items-center justify-between gap-2 py-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-sm text-slate-600 break-words leading-5">{a.name}</div>
+                    <div className="text-xs text-slate-500 mt-1">{a.member} · {typeLabel[a.type]}{a.type === 'asset' ? ` · ${CATS[getAssetCategory(a)]}` : ''}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={() => setActiveState(a.id, true)} className="text-xs text-indigo-600 hover:underline">重新启用</button>
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    <button onClick={() => setActiveState(a.id, true)} className="px-2 text-sm text-indigo-600 hover:underline">重新启用</button>
                     <button onClick={() => setConfirm({ mode: 'delete', account: a })} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" title="删除" aria-label={`删除 ${a.name}`}><Trash2 className="w-4 h-4" /></button>
                   </div>
                 </div>
@@ -2157,7 +2187,8 @@ function ConfirmModal({ confirm, records, latest, goals, onCancel, onDeactivate,
   const isDeactivate = mode === 'deactivate';
   return (
     <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="account-confirm-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="account-confirm-title" tabIndex="-1" className="ui-dialog max-w-sm">
+        <div className="ui-dialog-body break-words">
         <div className="flex items-center gap-2 mb-2">
           {isDeactivate
             ? <Power className="w-5 h-5 text-emerald-600" />
@@ -2184,12 +2215,13 @@ function ConfirmModal({ confirm, records, latest, goals, onCancel, onDeactivate,
             <p className="text-xs text-slate-400">若只是「现在没有了」但想保留历史，建议改用「停用」。</p>
           </div>
         )}
-        <div className="flex gap-2 justify-end">
-          <button data-dialog-autofocus onClick={onCancel} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
+        </div>
+        <div className="ui-dialog-footer">
+          <button data-dialog-autofocus onClick={onCancel} className="ui-button-secondary">取消</button>
           {isDeactivate ? (
-            <button onClick={onDeactivate} className="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg">确认停用</button>
+            <button onClick={onDeactivate} className="ui-button-primary">确认停用</button>
           ) : (
-            <button onClick={onDelete} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
+            <button onClick={onDelete} className="ui-button-danger">确认删除</button>
           )}
         </div>
       </div>
@@ -2199,9 +2231,9 @@ function ConfirmModal({ confirm, records, latest, goals, onCancel, onDeactivate,
 
 function MiniStat({ label, value, c }) {
   return (
-    <div className="bg-slate-50 rounded-lg py-2">
+    <div className="min-w-0 py-1">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className={`font-bold ${c}`}>{value}</div>
+      <div className={`ui-number text-lg font-semibold mt-0.5 break-words ${c}`}>{value}</div>
     </div>
   );
 }
@@ -2234,8 +2266,9 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
   const categoryChanged = pendingSave && account.type === 'asset' && pendingSave.type === 'asset'
     && getAssetCategory(account) !== getAssetCategory(pendingSave);
   return (
-    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="account-modal-title" tabIndex="-1" className="fixed inset-0 bg-black/40 z-30 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="bg-white w-full sm:max-w-sm max-h-[calc(100dvh-1rem)] sm:max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl p-5">
+    <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="account-modal-title" tabIndex="-1" className="fixed inset-0 bg-black/40 z-30 flex items-center justify-center p-4">
+      <div className="ui-dialog max-w-sm">
+        <div className="ui-dialog-body">
         <div className="flex items-center justify-between mb-4">
           <h3 id="account-modal-title" className="font-semibold">{account.id ? '编辑账户' : '新增账户'}</h3>
           <button onClick={onClose} aria-label="关闭账户编辑" className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -2291,11 +2324,16 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
             </select>
           </Field>
         </div>
-        <button onClick={submit} className="w-full mt-4 bg-indigo-600 text-white rounded-lg py-2.5 font-medium">保存</button>
+        </div>
+        <div className="ui-dialog-footer">
+          <button onClick={onClose} className="ui-button-secondary flex-1">取消</button>
+          <button onClick={submit} className="ui-button-primary flex-1">保存</button>
+        </div>
       </div>
       {pendingSave && (
         <div className="fixed inset-0 bg-black/40 z-40 flex items-center justify-center p-4">
-          <div ref={historyDialogRef} role="dialog" aria-modal="true" aria-labelledby="account-history-change-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={historyDialogRef} role="dialog" aria-modal="true" aria-labelledby="account-history-change-title" tabIndex="-1" className="ui-dialog max-w-sm">
+            <div className="ui-dialog-body break-words">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
               <h3 id="account-history-change-title" className="font-semibold">确认调整历史归类</h3>
@@ -2306,9 +2344,10 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
               {categoryChanged && <li>• 资产大类：{CATS[getAssetCategory(account)]} → {CATS[getAssetCategory(pendingSave)]}</li>}
             </ul>
             <p className="text-xs text-slate-400 mt-2">账户名称和各月金额不会改变，但历史图表及相关汇总可能随归类变化。</p>
-            <div className="flex gap-2 justify-end mt-4">
-              <button data-dialog-autofocus onClick={() => setPendingSave(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">返回修改</button>
-              <button onClick={() => onSave(pendingSave)} className="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg">确认并保存</button>
+            </div>
+            <div className="ui-dialog-footer">
+              <button data-dialog-autofocus onClick={() => setPendingSave(null)} className="ui-button-secondary">返回修改</button>
+              <button onClick={() => onSave(pendingSave)} className="ui-button-primary">确认并保存</button>
             </div>
           </div>
         </div>
@@ -2320,7 +2359,7 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
 function Field({ label, htmlFor, error, children }) {
   return (
     <div>
-      <label htmlFor={htmlFor} className="block text-xs text-slate-500 mb-1">{label}</label>
+      <label htmlFor={htmlFor} className="block text-sm font-medium text-slate-600 mb-1.5">{label}</label>
       {children}
       {error && <p id={`${htmlFor}-error`} className="text-xs text-rose-600 mt-1">{error}</p>}
     </div>
@@ -2837,15 +2876,15 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
   };
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl p-3 sm:p-4 border border-slate-200">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-4">
+          <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
               <CalendarClock className="w-4 h-4 text-indigo-600" />查看已有月份
             </div>
             <p className="text-xs text-slate-500 mt-1">切换到任意已记录月份，查看或继续处理该月数据。</p>
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2 mt-2">
               <select aria-label="查看已有月份" value={sel || ''} onChange={(e) => chooseMonth(e.target.value)} className="min-w-0 flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white">
                 {months.length === 0 && <option value="">（暂无月份）</option>}
                 {months.map((m) => <option key={m} value={m}>{m}{monthMeta[m]?.reviewRequired ? ' · 待复核' : ''}</option>)}
@@ -2855,17 +2894,17 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             {latestMonth && <p className="text-[11px] text-slate-400 mt-2">最新记录：{latestMonth}</p>}
           </div>
 
-          <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 p-3">
+          <div className="min-w-0 border-t border-slate-200 pt-3 sm:border-t-0 sm:border-l sm:pt-0 sm:pl-4">
             <div className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
               <PlusCircle className="w-4 h-4 text-indigo-600" />新建月份
             </div>
             <p className="text-xs text-indigo-700 mt-1">按月份顺序补录，默认建议下一月份：{nextAvailableMonth}。</p>
-            <div className="flex items-center gap-2 mt-3">
+            <div className="flex items-center gap-2 mt-2">
               <input aria-label="新建月份" type="month" value={newMonth} onChange={(e) => setNewMonth(e.target.value)}
                 className="min-w-0 flex-1 border border-indigo-200 rounded-lg px-2 py-2 text-sm bg-white" />
               <button onClick={addMonth} disabled={!canChooseOrCreateMonth}
                 title={!canChooseOrCreateMonth && newMonthPrevious ? `请先完成 ${newMonthPrevious} 结账` : ''}
-                className="shrink-0 flex items-center gap-1 text-sm bg-indigo-600 text-white px-3 py-2 rounded-lg whitespace-nowrap disabled:bg-slate-300 disabled:text-slate-500 disabled:cursor-not-allowed">
+                className="ui-button-primary shrink-0 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
                 <NewMonthActionIcon className="w-4 h-4" />{newMonthActionLabel}
               </button>
             </div>
@@ -2882,19 +2921,19 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
         <p className="text-sm text-slate-500 bg-white rounded-xl p-4 border border-slate-200">还没有任何月份，请在上方「新建月份」选择月份并开始录入。</p>
       ) : (
         <>
-          <div className="bg-white rounded-xl p-4 border border-slate-200 grid grid-cols-3 gap-2 text-center">
+          <div className="bg-white rounded-xl p-3 border border-slate-200 grid grid-cols-3 gap-2 text-center">
             <MiniStat label="本月收入" value={fmtWan(inc)} c="text-emerald-600" />
             <MiniStat label="本月支出" value={fmtWan(exp)} c="text-amber-600" />
             <MiniStat label="本月攒的" value={fmtWan(inc - exp)} c="text-indigo-600" />
           </div>
 
-          <div className="bg-white rounded-xl p-4 border border-slate-200">
+          <div className="bg-white rounded-xl p-3 border border-slate-200">
             <div className="text-sm font-semibold text-slate-700 mb-2">家庭资产大类</div>
             <div className="grid grid-cols-3 gap-2 text-center">
               {assetCategorySummary.map((item) => (
-                <div key={item.category} className="bg-slate-50 rounded-lg px-1 py-2">
+                <div key={item.category} className="min-w-0 px-1 py-1">
                   <div className="text-xs text-slate-500">{item.category === 'cash' ? '现金类' : CATS[item.category]}</div>
-                  <div className="font-bold text-slate-700">{fmtWan(item.current)}</div>
+                  <div className="ui-number text-lg font-semibold text-slate-800">{fmtWan(item.current)}</div>
                   <div className={`text-xs mt-0.5 ${!previousMonth || item.change === 0 ? 'text-slate-400' : item.change > 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
                     {previousMonth ? `较${previousPeriodLabel} ${yuanSign(item.change)}` : '首月记录'}
                   </div>
@@ -2991,26 +3030,26 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                           return (
                             <div key={a.id} className="flex items-start gap-3">
                               <div className="flex-1 min-w-0 pt-1">
-                                <div className="text-sm truncate">
+                                <div className="text-sm font-medium break-words leading-5">
                                   {a.name}
                                   {!isActive(a) && <span className="ml-1 text-xs text-slate-400">已停用 · 本月有记录</span>}
                                   {a.type === 'expense' && a.isFixed && <span className="ml-1 text-xs text-amber-600">固定</span>}
                                 </div>
                                 {showPrevious && (
                                   previousMonth ? (
-                                    <div className="text-xs text-slate-400 mt-0.5">
-                                      {previousPeriodLabel} {fmtYuan(previousValue)} · <span className={change === 0 ? 'text-slate-400' : change > 0 ? 'text-emerald-600' : 'text-rose-500'}>变化 {yuanSign(change)}</span>
+                                    <div className="text-xs text-slate-500 mt-1 leading-5">
+                                      <span className="block">{previousPeriodLabel} {fmtYuan(previousValue)}</span><span className={change === 0 ? 'text-slate-500' : change > 0 ? 'text-emerald-700' : 'text-rose-600'}>变化 {yuanSign(change)}</span>
                                     </div>
                                   ) : <div className="text-xs text-slate-400 mt-0.5">暂无{previousPeriodLabel}数据</div>
                                 )}
                               </div>
-                              <div className="w-32 shrink-0">
+                              <div className="w-36 max-w-[48%] shrink-0">
                                 <input data-closing-account-id={a.id} type="text" inputMode="decimal" aria-label={`${member} ${a.name}${isPendingInput ? ' 待处理' : ''}`} aria-invalid={amountError ? 'true' : undefined} aria-describedby={amountError ? errorId : undefined} title={isPendingBalance ? previousMonth ? `沿用${previousPeriodLabel}金额，结账时将统一确认` : '首月余额初始为 0，结账时将统一确认' : isPendingFlow ? '本月仍为初始值 0，结账时将统一确认' : isPendingAmount ? '本次修改尚未确认，离开时会保留草稿' : undefined} value={inputValue}
                                   onFocus={(e) => e.currentTarget.select()}
                                   onChange={(e) => setAmountValue(a, e.target.value)} onBlur={(e) => finishAmountEdit(a, e.target.value)}
                                   disabled={isClosed}
-                                  className={`w-full border rounded-lg px-3 py-1.5 text-sm text-right focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed ${amountError ? 'border-rose-400 bg-rose-50' : isPendingInput ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`} />
-                                {amountError && <div className="mt-1 flex items-center justify-end gap-2"><p id={errorId} className="text-[11px] text-rose-600 text-right">{amountError}</p>{canRestoreAmount && <button type="button" onClick={() => restoreAmountValue(a)} className="shrink-0 text-[11px] text-indigo-600 hover:underline">恢复原值</button>}</div>}
+                                  className={`ui-number w-full min-h-11 border rounded-lg px-3 py-2 text-base text-right focus:outline-none focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 disabled:bg-slate-50 disabled:text-slate-600 disabled:cursor-not-allowed ${amountError ? 'border-rose-400 bg-rose-50' : isPendingInput ? 'border-amber-300 bg-amber-50' : 'border-slate-300 bg-white'}`} />
+                                {amountError && <div className="mt-1 flex flex-wrap items-center justify-end gap-x-2"><p id={errorId} className="text-xs text-rose-600 text-right">{amountError}</p>{canRestoreAmount && <button type="button" onClick={() => restoreAmountValue(a)} className="shrink-0 text-xs text-indigo-600 hover:underline">恢复原值</button>}</div>}
                               </div>
                             </div>
                           );
@@ -3164,7 +3203,8 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
       </div>
       {deleteMonth && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={deleteMonthDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-month-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={deleteMonthDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-month-title" tabIndex="-1" className="ui-dialog max-w-sm">
+            <div className="ui-dialog-body">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className="w-5 h-5 text-rose-600" />
               <h3 id="delete-month-title" className="font-semibold">删除月度记录</h3>
@@ -3172,35 +3212,41 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
             <p className="text-sm text-slate-600 mb-2">确定删除 <span className="font-medium">{deleteMonth}</span> 的全部结账数据吗？</p>
             <p className="text-xs text-rose-600 bg-rose-50 rounded-lg p-2.5 mb-4">删除后，该月份将从净资产趋势、年度统计和历史记录中移除，且无法恢复。</p>
             {months.some((month) => month > deleteMonth && monthStatus[month] === 'closed') && <p className="text-xs text-amber-700 mb-3">后续已结账月份将标记为「需要复核」，增长拆解会重新计算；目标快照需再次结账刷新。</p>}
-            <div className="flex gap-2 justify-end">
-              <button data-dialog-autofocus onClick={() => setDeleteMonth(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button>
-              <button onClick={() => delMonth(deleteMonth)} className="px-4 py-2 text-sm bg-rose-600 hover:bg-rose-700 text-white rounded-lg">确认删除</button>
+            </div>
+            <div className="ui-dialog-footer">
+              <button data-dialog-autofocus onClick={() => setDeleteMonth(null)} className="ui-button-secondary">取消</button>
+              <button onClick={() => delMonth(deleteMonth)} className="ui-button-danger">确认删除</button>
             </div>
           </div>
         </div>
       )}
       {deleteAction && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={deleteActionDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-action-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={deleteActionDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-action-title" tabIndex="-1" className="ui-dialog max-w-sm">
+            <div className="ui-dialog-body">
             <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 id="delete-action-title" className="font-semibold">删除行动项</h3></div>
             <p className="text-sm text-slate-600 mb-4">删除后，该行动不会在下个月结账时出现。</p>
-            <div className="flex gap-2 justify-end"><button data-dialog-autofocus onClick={() => setDeleteAction(null)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={confirmDeleteAction} className="px-4 py-2 text-sm bg-rose-600 text-white rounded-lg">确认删除</button></div>
+            </div>
+            <div className="ui-dialog-footer"><button data-dialog-autofocus onClick={() => setDeleteAction(null)} className="ui-button-secondary">取消</button><button onClick={confirmDeleteAction} className="ui-button-danger">确认删除</button></div>
           </div>
         </div>
       )}
       {reopenCheckOpen && sel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={reopenDialogRef} role="dialog" aria-modal="true" aria-labelledby="reopen-month-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
+          <div ref={reopenDialogRef} role="dialog" aria-modal="true" aria-labelledby="reopen-month-title" tabIndex="-1" className="ui-dialog max-w-sm">
+            <div className="ui-dialog-body">
             <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-amber-600" /><h3 id="reopen-month-title" className="font-semibold">重新编辑 {sel}？</h3></div>
             <p className="text-sm text-slate-600 mb-4">重新编辑会打开本月金额并将结账状态改回「录入中」，已保存的简报、行动和目标快照会保留；修改完成后请再次结账。</p>
             {months.some((month) => month > sel && monthStatus[month] === 'closed') && <p className="text-xs text-amber-700 mb-3">修改历史金额后，后续已结账月份会标记为「需要复核」，请按月份顺序核对并再次结账。</p>}
-            <div className="flex gap-2 justify-end"><button data-dialog-autofocus onClick={() => setReopenCheckOpen(false)} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">取消</button><button onClick={reopenMonth} className="px-4 py-2 text-sm bg-amber-600 text-white rounded-lg">确认重新编辑</button></div>
+            </div>
+            <div className="ui-dialog-footer"><button data-dialog-autofocus onClick={() => setReopenCheckOpen(false)} className="ui-button-secondary">取消</button><button onClick={reopenMonth} className="ui-button-primary">确认重新编辑</button></div>
           </div>
         </div>
       )}
       {closeCheckOpen && sel && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={closeCheckDialogRef} role="dialog" aria-modal="true" aria-labelledby="close-check-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-md w-full shadow-xl max-h-[85vh] overflow-y-auto">
+          <div ref={closeCheckDialogRef} role="dialog" aria-modal="true" aria-labelledby="close-check-title" tabIndex="-1" className="ui-dialog max-w-md">
+            <div className="ui-dialog-body break-words">
             <div className="flex items-center gap-2 mb-2">
               <AlertTriangle className={`w-5 h-5 ${closeBlockers.length ? 'text-rose-600' : 'text-amber-600'}`} />
               <h3 id="close-check-title" className="font-semibold">结账检查 · {sel}</h3>
@@ -3246,9 +3292,10 @@ function Closing({ accounts, setAccounts, records, setRecords, series, monthStat
                 </ul>
               </div>
             ) : !closeBlockers.length && pendingInputAccounts.length === 0 && <p className="text-sm text-slate-500 mb-4">未发现异常提醒。</p>}
-            <div className="flex gap-2 justify-end">
-              <button onClick={returnToFirstBlocker} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">{closeBlockers.length ? '返回并定位' : '取消'}</button>
-              {!closeBlockers.length && <button onClick={closeMonth} className="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg">{pendingInputAccounts.length > 0 ? '确认以上数值并结账' : '确认结账'}</button>}
+            </div>
+            <div className="ui-dialog-footer">
+              <button onClick={returnToFirstBlocker} className="ui-button-secondary">{closeBlockers.length ? '返回并定位' : '取消'}</button>
+              {!closeBlockers.length && <button onClick={closeMonth} className="ui-button-primary">{pendingInputAccounts.length > 0 ? '确认以上数值并结账' : '确认结账'}</button>}
             </div>
           </div>
         </div>
@@ -3385,26 +3432,26 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
       {!formOpen && (
         <div className="flex justify-end">
           <button onClick={() => { setFormOpen(true); setEditingId(null); setDraft(emptyDraft); setError(''); setFieldErrors({}); setManualAmountNotice(false); requestAnimationFrame(() => requestAnimationFrame(() => { goalFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); document.getElementById('goal-name')?.focus({ preventScroll: true }); })); }}
-            className="flex items-center gap-1 text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2"><PlusCircle className="w-4 h-4" />新增目标</button>
+            className="ui-button-primary flex items-center gap-2 text-sm rounded-lg px-4 py-2"><PlusCircle className="w-4 h-4" />新增目标</button>
         </div>
       )}
       {formOpen && <div ref={goalFormRef} className="scroll-mt-24 bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-1">{editingId ? '编辑家庭目标' : '新增家庭目标'}</div>
+        <div className="ui-section-title mb-1">{editingId ? '编辑家庭目标' : '新增家庭目标'}</div>
         <p className="text-xs text-slate-400 mb-3">目标金额用于衡量家庭计划，不会计入资产或影响月度结账。</p>
         <div className="grid sm:grid-cols-2 gap-3">
-          <label className="text-sm text-slate-600">目标类型
+          <label className="min-w-0 text-sm text-slate-600">目标类型
             <select value={draft.goalType} onChange={(e) => setDraft((d) => ({ ...d, goalType: e.target.value }))}
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800 bg-white">
               <option value="standard">普通家庭目标</option>
               <option value="emergency">应急资金</option>
             </select>
           </label>
-          <label className="text-sm text-slate-600">目标名称
+          <label className="min-w-0 text-sm text-slate-600">目标名称
             <input id="goal-name" value={draft.name} aria-invalid={fieldErrors.name ? 'true' : undefined} aria-describedby={fieldErrors.name ? 'goal-name-error' : undefined} onChange={(e) => { setDraft((d) => ({ ...d, name: e.target.value })); clearFieldError('name'); }} placeholder="例如：6个月应急资金"
               className={`mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 ${fieldErrors.name ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
             {fieldErrors.name && <span id="goal-name-error" className="block text-xs text-rose-600 mt-1">{fieldErrors.name}</span>}
           </label>
-          <label className="text-sm text-slate-600">目标日期
+          <label className="min-w-0 text-sm text-slate-600">目标日期
             <input id="goal-targetDate" type="month" value={draft.targetDate} aria-invalid={fieldErrors.targetDate ? 'true' : undefined} aria-describedby={fieldErrors.targetDate ? 'goal-targetDate-error' : undefined} onChange={(e) => { setDraft((d) => ({ ...d, targetDate: e.target.value })); clearFieldError('targetDate'); }}
               className={`mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 ${fieldErrors.targetDate ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
             {fieldErrors.targetDate && <span id="goal-targetDate-error" className="block text-xs text-rose-600 mt-1">{fieldErrors.targetDate}</span>}
@@ -3420,23 +3467,23 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
                 近 {recentExpenseMonths.length} 条记录平均支出 {fmtYuan(recentAvgExpense)}，建议金额 {fmtYuan(suggestedEmergencyTarget)}。
               </div>
               <button type="button" disabled={!(suggestedEmergencyTarget > 0)} onClick={() => setDraft((d) => ({ ...d, targetAmount: String(Math.round(suggestedEmergencyTarget)) }))}
-                className="shrink-0 text-xs px-3 py-2 rounded-lg bg-white border border-indigo-200 text-indigo-600 disabled:text-slate-300 disabled:border-slate-200">使用建议金额</button>
+                className="ui-button-secondary shrink-0 text-sm px-3 py-2 rounded-lg disabled:text-slate-400">使用建议金额</button>
             </div>
             <p className="text-xs text-slate-400 mt-2">建议金额只用于辅助填写，仍可手动调整；当前覆盖月数按实际准备金额除以近期平均月支出计算。</p>
           </div>}
-          <label className="text-sm text-slate-600">目标金额
+          <label className="min-w-0 text-sm text-slate-600">目标金额
             <input id="goal-targetAmount" type="number" min="0" inputMode="decimal" value={draft.targetAmount} aria-invalid={fieldErrors.targetAmount ? 'true' : undefined} aria-describedby={fieldErrors.targetAmount ? 'goal-targetAmount-error' : undefined} onChange={(e) => { setDraft((d) => ({ ...d, targetAmount: e.target.value })); clearFieldError('targetAmount'); }} placeholder="0"
-              className={`mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 ${fieldErrors.targetAmount ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
+              className={`ui-number mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 ${fieldErrors.targetAmount ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
             {fieldErrors.targetAmount && <span id="goal-targetAmount-error" className="block text-xs text-rose-600 mt-1">{fieldErrors.targetAmount}</span>}
           </label>
-          <label className="text-sm text-slate-600">当前已准备{draft.linkedAccountIds.length > 0 ? '（自动汇总）' : ''}
+          <label className="min-w-0 text-sm text-slate-600">当前已准备{draft.linkedAccountIds.length > 0 ? '（自动汇总）' : ''}
             <input id="goal-currentAmount" type="number" min="0" inputMode="decimal" value={draft.linkedAccountIds.length > 0 ? resolveGoalCurrentAmount({ goalType: draft.goalType, linkedAccountIds: draft.linkedAccountIds }, latestRec, accounts) : draft.currentAmount} aria-invalid={fieldErrors.currentAmount ? 'true' : undefined} aria-describedby={fieldErrors.currentAmount ? 'goal-currentAmount-error' : undefined} onChange={(e) => { setDraft((d) => ({ ...d, currentAmount: e.target.value })); clearFieldError('currentAmount'); }} placeholder="0"
               disabled={draft.linkedAccountIds.length > 0}
-              className={`mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 disabled:bg-slate-100 disabled:text-slate-400 ${fieldErrors.currentAmount ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
+              className={`ui-number mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 disabled:bg-slate-100 disabled:text-slate-500 ${fieldErrors.currentAmount ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
             {fieldErrors.currentAmount && <span id="goal-currentAmount-error" className="block text-xs text-rose-600 mt-1">{fieldErrors.currentAmount}</span>}
             {manualAmountNotice && <span role="status" className="block text-xs text-amber-700 mt-1">已转为手动金额，请核对</span>}
           </label>
-          <label className="text-sm text-slate-600">优先级
+          <label className="min-w-0 text-sm text-slate-600">优先级
             <select value={draft.priority} onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}
               className="mt-1 w-full border border-slate-200 rounded-lg px-3 py-2 text-slate-800 bg-white">
               <option value="high">优先</option><option value="medium">正常</option><option value="low">以后</option>
@@ -3451,9 +3498,9 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
                   const checked = draft.linkedAccountIds.includes(account.id);
                   const unavailable = usedByOther && !checked;
                   const incompatible = draft.goalType === 'emergency' ? getAssetCategory(account) !== 'cash' : getAssetCategory(account) === 'fixed';
-                  return <label key={account.id} className={`flex items-start gap-2 text-sm ${unavailable ? 'text-slate-300' : 'text-slate-600 cursor-pointer'}`}>
-                    <input type="checkbox" checked={checked} disabled={unavailable} onChange={(e) => changeSource(account.id, e.target.checked)} className="mt-0.5 accent-indigo-600" />
-                    <span className="flex-1">{account.member} · {account.name}{account.active === false ? '（已停用）' : ''}<span className={`block text-xs ${incompatible ? 'text-rose-500' : 'text-slate-400'}`}>{CATS[getAssetCategory(account)]} · 最新余额 {fmtYuan(latestRec[account.id] || 0)}{usedByOther ? ' · 已归属其他目标' : ''}{incompatible ? draft.goalType === 'emergency' ? ' · 不符合应急资金来源' : ' · 固定资产不能作为目标来源' : ''}</span></span>
+                  return <label key={account.id} className={`flex min-h-11 items-start gap-3 py-1 text-sm ${unavailable ? 'text-slate-400' : 'text-slate-700 cursor-pointer'}`}>
+                    <input type="checkbox" checked={checked} disabled={unavailable} onChange={(e) => changeSource(account.id, e.target.checked)} className="mt-0.5 w-5 h-5 shrink-0 accent-indigo-600" />
+                    <span className="min-w-0 flex-1 break-words">{account.member} · {account.name}{account.active === false ? '（已停用）' : ''}<span className={`block text-xs mt-0.5 ${incompatible ? 'text-rose-600' : 'text-slate-500'}`}>{CATS[getAssetCategory(account)]} · 最新余额 {fmtYuan(latestRec[account.id] || 0)}{usedByOther ? ' · 已归属其他目标' : ''}{incompatible ? draft.goalType === 'emergency' ? ' · 不符合应急资金来源' : ' · 固定资产不能作为目标来源' : ''}</span></span>
                   </label>;
                 })}
               </div>
@@ -3469,16 +3516,16 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
           </div>
         </div>
         {error && <p className="text-xs text-rose-600 mt-2">{error}</p>}
-        <div className="flex gap-2 mt-3">
-          <button onClick={saveGoal} className="text-sm bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2">{editingId ? '更新目标' : '添加目标'}</button>
-          <button onClick={cancelEdit} className="text-sm text-slate-500 hover:bg-slate-100 rounded-lg px-4 py-2">取消</button>
+        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-100">
+          <button onClick={cancelEdit} className="ui-button-secondary text-sm rounded-lg px-4 py-2">取消</button>
+          <button onClick={saveGoal} className="ui-button-primary text-sm rounded-lg px-4 py-2">{editingId ? '更新目标' : '添加目标'}</button>
         </div>
       </div>}
 
       {sortedGoals.length === 0 ? (
         <div className="bg-white rounded-xl p-8 border border-slate-200 text-center text-sm text-slate-400">暂无家庭目标，可以先从应急资金或近期生活计划开始。</div>
       ) : (
-        <div className="grid md:grid-cols-2 gap-3">
+        <div className="grid md:grid-cols-2 gap-4">
           {sortedGoals.map((goal) => {
             const linkedAccountIds = Array.isArray(goal.linkedAccountIds) ? goal.linkedAccountIds : [];
             const { targetAmount, currentAmount, gap, monthlyNeed, progress } = getGoalProgress(goal, currentMonthIndex, resolveGoalCurrentAmount(goal, latestRec, accounts));
@@ -3502,35 +3549,36 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
               const intervalMonths = Math.max(1, latestMonthIndex - previousMonthIndex);
               plannedIncrease = previousPlan.monthlyNeed == null ? null : previousPlan.monthlyNeed * intervalMonths;
             }
-            return <div key={goal.id} className="bg-white rounded-xl p-4 border border-slate-200">
-              <div className="flex items-start gap-2">
+            return <div key={goal.id} className="bg-white rounded-xl p-4 sm:p-5 border border-slate-200">
+              <div className="flex items-start gap-1">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap"><span className="font-semibold truncate">{goal.name}</span><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span>{isEmergency && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-600">应急资金</span>}</div>
-                  <p className="text-xs text-slate-400 mt-1">目标日期 {goal.targetDate}{linkedAccountIds.length > 0 ? ` · 自动汇总 ${linkedAccountIds.length} 个账户` : ' · 手动金额'}</p>
+                  <div className="ui-section-title break-words leading-6">{goal.name}</div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1.5"><span className={`shrink-0 text-xs px-2 py-0.5 rounded-full ${priorityTone[goal.priority] || priorityTone.medium}`}>{priorityLabel[goal.priority] || '正常'}</span>{isEmergency && <span className="shrink-0 text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-700">应急资金</span>}</div>
+                  <p className="text-xs text-slate-500 mt-2">目标日期 {goal.targetDate}{linkedAccountIds.length > 0 ? ` · 自动汇总 ${linkedAccountIds.length} 个账户` : ' · 手动金额'}</p>
                 </div>
                 <button onClick={() => editGoal(goal)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-indigo-600" title={`编辑 ${goal.name}`} aria-label={`编辑 ${goal.name}`}><Pencil className="w-4 h-4" /></button>
                 <button onClick={() => setDeleteId(goal.id)} className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg text-slate-400 hover:bg-rose-50 hover:text-rose-600" title={`删除 ${goal.name}`} aria-label={`删除 ${goal.name}`}><Trash2 className="w-4 h-4" /></button>
               </div>
-              <div className="flex justify-between text-sm mt-3"><span className="text-slate-500">{fmtWan(currentAmount)} / {fmtWan(targetAmount)}</span><span className="font-medium text-indigo-600">{(progress * 100).toFixed(1)}%</span></div>
-              <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 mt-4"><span className="ui-number text-2xl font-semibold text-slate-800">{fmtWan(currentAmount)} <span className="text-sm font-normal text-slate-500">/ {fmtWan(targetAmount)}</span></span><span className="ui-number text-sm font-medium text-slate-600">{(progress * 100).toFixed(1)}%</span></div>
+              <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-2"><div className="h-full bg-indigo-600 rounded-full" style={{ width: `${Math.min(100, progress * 100)}%` }} /></div>
               {missingLinkedCount > 0 && <p className="text-xs text-amber-700 mt-2">{missingLinkedCount} 个资金来源已删除，不计入当前金额。请编辑目标解除关联或更换账户。</p>}
               {isEmergency && <p className={`text-xs mt-2 ${coverageShortfall ? 'text-amber-700' : 'text-sky-600'}`}>当前可覆盖 {currentCoverageMonths == null ? '—' : currentCoverageMonths.toFixed(1)} 个月 · 家庭目标 {goalCoverageTarget} 个月{coverageShortfall ? ' · 保障月数不足' : ''}</p>}
               {coverageShortfall && gap === 0 && <div className="mt-2 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-800"><p>金额目标已达成，但按近期支出计算的保障月数仍不足。可编辑目标，使用建议金额重新评估。</p><button onClick={() => editGoal(goal)} className="mt-1 min-h-10 text-amber-800 font-medium">复核保障金额</button></div>}
-              <div className="grid grid-cols-2 gap-2 mt-3 text-center">
+              <div className="grid grid-cols-2 gap-4 mt-4 text-left">
                 <MiniStat label="还差" value={fmtWan(gap)} c={gap > 0 ? 'text-amber-600' : 'text-emerald-600'} />
                 <MiniStat label="按期每月需准备" value={gap === 0 ? isEmergency ? '金额已达成' : '已完成' : monthlyNeed == null ? '已到期' : fmtWan(monthlyNeed)} c={gap === 0 ? 'text-emerald-600' : 'text-indigo-600'} />
               </div>
-              <div className="mt-3 pt-3 border-t border-slate-100">
-                <div className="text-xs font-medium text-slate-500 mb-1">目标进度历史</div>
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <div className="text-sm font-medium text-slate-600 mb-2">目标进度历史</div>
                 {history.some((snapshot) => monthMeta[snapshot.month]?.reviewRequired) && <p className="text-xs text-amber-700 mb-2">历史调整后部分目标快照待复核，请在对应月份再次结账后再作比较。</p>}
                 {history.length === 0 ? <p className="text-xs text-slate-400">完成月度结账后开始记录目标快照。</p>
                   : history.length === 1 ? <p className="text-xs text-slate-500">{latestSnapshot.month} 已记录首个快照：{fmtWan(latestSnapshot.currentAmount)}</p>
                   : <>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <MiniStat label="本期余额变化" value={wanSign(actualIncrease)} c={actualIncrease >= 0 ? 'text-emerald-600' : 'text-rose-600'} />
-                      <MiniStat label="本期计划增加" value={plannedIncrease == null ? '目标已到期' : fmtWan(plannedIncrease)} c="text-indigo-600" />
-                      <MiniStat label="余额进度对比" value={sourceChanged ? '来源已变化' : planChanged ? '计划已变化' : plannedIncrease == null ? '需重设日期' : actualIncrease >= plannedIncrease ? '达到参考值' : `低于参考 ${fmtWan(plannedIncrease - actualIncrease)}`} c={sourceChanged || planChanged ? 'text-slate-500' : plannedIncrease != null && actualIncrease >= plannedIncrease ? 'text-emerald-600' : 'text-rose-600'} />
-                    </div>
+                    <dl className="grid grid-cols-2 sm:grid-cols-3 gap-x-3 gap-y-3 text-sm">
+                      <div><dt className="text-xs text-slate-500">本期余额变化</dt><dd className={`ui-number mt-1 ${actualIncrease >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>{wanSign(actualIncrease)}</dd></div>
+                      <div><dt className="text-xs text-slate-500">本期计划增加</dt><dd className="ui-number mt-1 text-slate-700">{plannedIncrease == null ? '目标已到期' : fmtWan(plannedIncrease)}</dd></div>
+                      <div className="col-span-2 sm:col-span-1"><dt className="text-xs text-slate-500">余额进度对比</dt><dd className={`mt-1 ${sourceChanged || planChanged ? 'text-slate-600' : plannedIncrease != null && actualIncrease >= plannedIncrease ? 'text-emerald-700' : 'text-rose-700'}`}>{sourceChanged ? '来源已变化' : planChanged ? '计划已变化' : plannedIncrease == null ? '需重设日期' : actualIncrease >= plannedIncrease ? '达到参考值' : `低于参考 ${fmtWan(plannedIncrease - actualIncrease)}`}</dd></div>
+                    </dl>
                     <p className="text-xs text-slate-400 mt-2">余额变化包含投资涨跌、估值和资金来源调整，不等于本期实际投入；对比仅作计划参考。</p>
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
                       {history.slice(-4).map((snapshot, index, shown) => {
@@ -3548,10 +3596,12 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
 
       {deleteId && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div ref={deleteGoalDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-goal-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full shadow-xl">
-            <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600" /><h3 id="delete-goal-title" className="font-semibold">删除家庭目标</h3></div>
-            <p className="text-sm text-slate-600 mb-4">删除后无法恢复，但不会影响账户和月度数据。</p>
-            <div className="flex gap-2"><button onClick={confirmDelete} className="flex-1 bg-rose-600 text-white rounded-lg py-2 text-sm">确认删除</button><button data-dialog-autofocus onClick={() => setDeleteId(null)} className="flex-1 bg-slate-100 rounded-lg py-2 text-sm">取消</button></div>
+          <div ref={deleteGoalDialogRef} role="dialog" aria-modal="true" aria-labelledby="delete-goal-title" tabIndex="-1" className="ui-dialog max-w-sm w-full">
+            <div className="ui-dialog-body p-5">
+              <div className="flex items-center gap-2 mb-2"><AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" /><h3 id="delete-goal-title" className="ui-section-title">删除家庭目标</h3></div>
+              <p className="text-sm text-slate-600">删除后无法恢复，但不会影响账户和月度数据。</p>
+            </div>
+            <div className="ui-dialog-footer flex gap-2 px-5 py-4"><button data-dialog-autofocus onClick={() => setDeleteId(null)} className="ui-button-secondary flex-1 rounded-lg py-2 text-sm">取消</button><button onClick={confirmDelete} className="ui-button-danger flex-1 rounded-lg py-2 text-sm">确认删除</button></div>
           </div>
         </div>
       )}
@@ -3591,7 +3641,7 @@ function Annual({ annual }) {
     <div className="space-y-4">
       <div className="bg-white rounded-xl p-4 border border-slate-200">
         <div className="flex flex-wrap items-center gap-2 mb-2">
-          <div className="font-semibold">增长拆解 · {latestY.periodLabel}</div>
+          <h2 className="ui-section-title">增长拆解 · {latestY.periodLabel}</h2>
           {!latestY.isFullYear && <span className="text-xs text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">已记录 {latestY.monthCount} 个月</span>}
         </div>
         {latestY.missingMonths?.length > 0 && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mb-2">该区间缺少月份：{latestY.missingMonths.join('、')}。年度汇总按已记录月份计算。</p>}
@@ -3599,8 +3649,8 @@ function Annual({ annual }) {
           <p className="text-sm text-slate-500">缺少期初数据，以 {latestY.baselineMonth} 的月末净资产为起点。之后可确认的净资产变化 {wanSign(latestY.growth)}。首月收支仍计入年度收支汇总，不计入增长拆解。</p>
         ) : (
           <>
-            <p className="text-sm text-slate-600 mb-1">
-              期末净资产 <span className="font-bold text-indigo-600">{fmtWan(latestY.netWorth)}</span>，
+            <p className="text-sm leading-8 text-slate-600 mb-1">
+              期末净资产 <span className="text-2xl font-semibold text-slate-800 ui-number">{fmtWan(latestY.netWorth)}</span>，
               较 {latestY.comparisonYear} 年末 <span className={latestY.yoyAbs >= 0 ? 'text-emerald-600 font-medium' : 'text-rose-600 font-medium'}>{wanSign(latestY.yoyAbs)}（{pctSign(latestY.yoyPct)}）</span>
             </p>
             <p className="text-sm text-slate-600 mb-2">
@@ -3622,7 +3672,7 @@ function Annual({ annual }) {
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">年度收入与支出（万元）</div>
+        <h2 className="ui-section-title mb-2">年度收入与支出（万元）</h2>
         {chartData.some((item) => !item.isFullYear) && <p className="text-xs text-slate-400 mb-2">浅色虚线柱表示未完整年度，按实际已记录月份展示，不做年化推算；缺少月份会在图表提示中标明。</p>}
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
@@ -3647,7 +3697,7 @@ function Annual({ annual }) {
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">期末净资产（万元）</div>
+        <h2 className="ui-section-title mb-2">期末净资产（万元）</h2>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 24, bottom: 18 }}>
@@ -3665,7 +3715,7 @@ function Annual({ annual }) {
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200">
-        <div className="font-semibold mb-2">增长来源：攒的 vs 非收支变化（万元）</div>
+        <h2 className="ui-section-title mb-2">增长来源：攒的 vs 非收支变化（万元）</h2>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} stackOffset="sign" margin={{ top: 24, bottom: 18 }}>
@@ -3689,7 +3739,7 @@ function Annual({ annual }) {
       </div>
 
       <div className="bg-white rounded-xl p-4 border border-slate-200 overflow-x-auto">
-        <div className="font-semibold mb-2">年度明细</div>
+        <h2 className="ui-section-title mb-2">年度明细</h2>
         <p className="sm:hidden text-xs text-slate-400 mb-2">左右滑动查看完整年度指标 →</p>
         <table className="w-full text-sm whitespace-nowrap">
           <thead>
@@ -3711,20 +3761,20 @@ function Annual({ annual }) {
           </thead>
           <tbody>
             {annual.map((a) => (
-              <tr key={a.year} className="border-b border-slate-50">
-                <td className="py-2 font-medium sticky left-0 bg-white">{a.periodShortLabel}</td>
-                <td className="text-right px-3 font-medium">{fmtWan(a.netWorth)}</td>
+              <tr key={a.year} className="border-b border-slate-100">
+                <td className="py-3 font-medium sticky left-0 bg-white pr-3">{a.periodShortLabel}</td>
+                <td className="text-right px-3 font-semibold text-slate-800">{fmtWan(a.netWorth)}</td>
                 <td className={`text-right px-3 ${a.yoyAbs == null ? 'text-slate-400' : a.yoyAbs >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{a.yoyAbs == null ? '无期初基线' : `${a.comparisonYear}年末：${a.yoyPct == null ? wanSign(a.yoyAbs) : pctSign(a.yoyPct)}`}</td>
-                <td className="text-right px-3 text-indigo-600">{wanSign(a.growth)}</td>
-                <td className="text-right px-3 text-emerald-600">{fmtWan(a.income)}</td>
-                <td className="text-right px-3 text-amber-600">{fmtWan(a.expenses)}</td>
-                <td className="text-right px-3 text-emerald-600">{wanSign(a.saved)}</td>
-                <td className="text-right px-3 text-amber-600">{wanSign(a.nonCashChange)}</td>
+                <td className="text-right px-3 text-slate-700">{wanSign(a.growth)}</td>
+                <td className="text-right px-3 text-slate-700">{fmtWan(a.income)}</td>
+                <td className="text-right px-3 text-slate-700">{fmtWan(a.expenses)}</td>
+                <td className="text-right px-3 text-slate-700">{wanSign(a.saved)}</td>
+                <td className="text-right px-3 text-slate-700">{wanSign(a.nonCashChange)}</td>
                 <td className="text-right px-3">{a.savingsRate == null ? '—' : `${(a.savingsRate * 100).toFixed(0)}%`}</td>
                 <td className="text-right px-3 text-slate-600">{fmtWan(a.totalAssets)}</td>
-                <td className="text-right px-3 text-rose-500">{fmtWan(a.liabilities)}</td>
+                <td className="text-right px-3 text-slate-600">{fmtWan(a.liabilities)}</td>
                 <td className="text-right px-3 text-slate-600">{wanSign(a.debtReduced)}</td>
-                <td className="text-right px-3 text-amber-600">{(a.concentration * 100).toFixed(0)}%</td>
+                <td className="text-right px-3 text-slate-600">{(a.concentration * 100).toFixed(0)}%</td>
               </tr>
             ))}
           </tbody>
@@ -3784,22 +3834,22 @@ function PasswordGate() {
 
   if (unlocked) return <FamilyFinance onChangePassword={changePassword} />;
   return (
-    <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
+    <div className="finance-app min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 w-full max-w-sm">
-        <div className="w-12 h-12 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-3">
+        <div className="w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center mx-auto mb-4">
           <Lock className="w-6 h-6" />
         </div>
-        <h1 className="text-lg font-bold text-center">家庭财务</h1>
-        <p className="text-sm text-slate-500 text-center mt-1 mb-4">请输入6位数字密码</p>
+        <h1 className="text-xl font-semibold text-slate-800 text-center">家庭财务</h1>
+        <p className="text-sm text-slate-600 text-center mt-2 mb-5">请输入6位数字密码</p>
         <input ref={passwordInputRef} type="password" inputMode="numeric" pattern="[0-9]*" maxLength="6" autoFocus
           value={password} onChange={(e) => { setPassword(e.target.value.replace(/\D/g, '').slice(0, 6)); setError(''); }}
           onKeyDown={(e) => { if (e.key === 'Enter') unlock(); }}
           className="w-full border border-slate-200 rounded-lg px-3 py-3 text-center text-xl tracking-[0.45em]"
           aria-label="6位数字密码" />
         {error && <p className="text-sm text-rose-600 text-center mt-2">{error}</p>}
-        <button onClick={unlock} className="w-full mt-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg py-2.5 font-medium">打开</button>
+        <button onClick={unlock} className="ui-button-primary w-full mt-4">打开</button>
         {!hasCustomPassword && <p className="text-xs text-slate-400 text-center mt-3">首次使用默认密码：123456</p>}
-        <p className="text-xs text-slate-400 text-center mt-2">这是本机页面锁，不会加密浏览器中保存的财务数据。</p>
+        <p className="text-xs text-slate-500 text-center mt-4 pt-4 border-t border-slate-100 leading-5">这是本机页面锁，不会加密浏览器中保存的财务数据。</p>
       </div>
     </div>
   );
@@ -3829,7 +3879,8 @@ function PasswordModal({ onSave, onClose }) {
   };
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="password-modal-title" tabIndex="-1" className="bg-white rounded-2xl p-5 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto overscroll-contain shadow-xl">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="password-modal-title" tabIndex="-1" className="ui-dialog max-w-sm">
+        <div className="ui-dialog-body">
         <div className="flex items-center justify-between mb-4">
           <h3 id="password-modal-title" className="font-semibold flex items-center gap-2"><Lock className="w-5 h-5 text-indigo-600" />修改密码</h3>
           <button onClick={onClose} aria-label="关闭修改密码" className="min-w-10 min-h-10 inline-flex items-center justify-center rounded-lg hover:bg-slate-100"><X className="w-5 h-5 text-slate-400" /></button>
@@ -3841,7 +3892,11 @@ function PasswordModal({ onSave, onClose }) {
         </div>
         {error && <p id="password-form-error" className="text-sm text-rose-600 mt-3">{error}</p>}
         <p className="text-xs text-slate-400 mt-3">密码仅保存在当前浏览器。清除浏览器数据会同时清除密码和财务数据，请定期导出备份。</p>
-        <button onClick={submit} className="w-full mt-4 bg-indigo-600 text-white rounded-lg py-2.5 font-medium">保存新密码</button>
+        </div>
+        <div className="ui-dialog-footer">
+          <button onClick={onClose} className="ui-button-secondary flex-1">取消</button>
+          <button onClick={submit} className="ui-button-primary flex-1">保存新密码</button>
+        </div>
       </div>
     </div>
   );
