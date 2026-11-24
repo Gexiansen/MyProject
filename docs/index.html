@@ -419,10 +419,11 @@ function cleanAccountMeta(meta, id, draftOnly = false) {
   }));
 }
 
+const validMonth = (value) => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+
 function normalizeImportedData(obj) {
   const isObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
   const isAmount = (value) => (typeof value === 'number' || typeof value === 'string' && /^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(value.trim())) && Number.isFinite(Number(value));
-  const validMonth = (value) => typeof value === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
   const checkAmount = (value, field) => { if (value != null && value !== '' && !isAmount(value)) throw new Error(`${field}不是有效数字。`); };
   const checkIds = (value, field) => { if (value != null && (!Array.isArray(value) || value.some((id) => typeof id !== 'string'))) throw new Error(`${field}应为账户 ID 列表。`); };
   if (!isObject(obj)) throw new Error('文件内容不是有效的家庭财务数据。');
@@ -2071,16 +2072,17 @@ function Accounts({ accounts, setAccounts, setRecords, latest, records, monthSta
   };
 
   const save = (acc) => {
-    setAccounts((prev) => {
-      const exists = prev.find((a) => a.id === acc.id);
-      return exists ? prev.map((a) => (a.id === acc.id ? acc : a)) : [...prev, acc];
-    });
-    if (acc.type === 'expense' && acc.isFixed && latest?.month && monthStatus[latest.month] !== 'closed'
+    const previous = accounts.find((a) => a.id === acc.id);
+    const fixedAmount = Number(acc.fixedAmount) || 0;
+    const fixedDefaultChanged = acc.type === 'expense' && acc.isFixed
+      && (previous?.type !== 'expense' || !previous.isFixed || (Number(previous.fixedAmount) || 0) !== fixedAmount);
+    setAccounts((prev) => previous ? prev.map((a) => (a.id === acc.id ? acc : a)) : [...prev, acc]);
+    if (fixedDefaultChanged && latest?.month && monthStatus[latest.month] !== 'closed'
       && (!monthMeta[latest.month]?.reopenedAt || Object.prototype.hasOwnProperty.call(records[latest.month] || {}, acc.id))) {
       setMonthMeta((prev) => ({ ...prev, [latest.month]: cleanAccountMeta({ [latest.month]: prev[latest.month] || {} }, acc.id, true)[latest.month] }));
       setRecords((prev) => ({
         ...prev,
-        [latest.month]: { ...prev[latest.month], [acc.id]: Number(acc.fixedAmount) || 0 },
+        [latest.month]: { ...prev[latest.month], [acc.id]: fixedAmount },
       }));
     }
     setModal(null);
@@ -2343,7 +2345,7 @@ function AccountModal({ account, onSave, onClose, historyMonthCount }) {
               {memberChanged && <li>• 归属成员：{account.member} → {pendingSave.member}</li>}
               {categoryChanged && <li>• 资产大类：{CATS[getAssetCategory(account)]} → {CATS[getAssetCategory(pendingSave)]}</li>}
             </ul>
-            <p className="text-xs text-slate-400 mt-2">账户名称和各月金额不会改变，但历史图表及相关汇总可能随归类变化。</p>
+            <p className="text-xs text-slate-400 mt-2">仅调整归类不会修改各月金额；历史图表及相关汇总可能随归类变化。</p>
             </div>
             <div className="ui-dialog-footer">
               <button data-dialog-autofocus onClick={() => setPendingSave(null)} className="ui-button-secondary">返回修改</button>
@@ -3370,6 +3372,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
     const nextFieldErrors = {};
     if (!name) nextFieldErrors.name = '请输入目标名称';
     if (!draft.targetDate) nextFieldErrors.targetDate = '请选择目标日期';
+    else if (!validMonth(draft.targetDate)) nextFieldErrors.targetDate = '目标日期须为四位年份和有效月份，例如 2030-03';
     if (!(targetAmount > 0)) nextFieldErrors.targetAmount = '目标金额必须大于 0';
     if (linkedAccountIds.length === 0 && currentAmount < 0) nextFieldErrors.currentAmount = '当前已准备金额不能为负数';
     if (draft.goalType === 'emergency' && !(coverageMonthsTarget > 0)) nextFieldErrors.coverageMonthsTarget = '保障月数必须大于 0';
@@ -3452,7 +3455,7 @@ function Goals({ goals, setGoals, goalHistory, setGoalHistory, accounts, records
             {fieldErrors.name && <span id="goal-name-error" className="block text-xs text-rose-600 mt-1">{fieldErrors.name}</span>}
           </label>
           <label className="min-w-0 text-sm text-slate-600">目标日期
-            <input id="goal-targetDate" type="month" value={draft.targetDate} aria-invalid={fieldErrors.targetDate ? 'true' : undefined} aria-describedby={fieldErrors.targetDate ? 'goal-targetDate-error' : undefined} onChange={(e) => { setDraft((d) => ({ ...d, targetDate: e.target.value })); clearFieldError('targetDate'); }}
+            <input id="goal-targetDate" type="month" max="9999-12" value={draft.targetDate} aria-invalid={fieldErrors.targetDate ? 'true' : undefined} aria-describedby={fieldErrors.targetDate ? 'goal-targetDate-error' : undefined} onChange={(e) => { setDraft((d) => ({ ...d, targetDate: e.target.value })); clearFieldError('targetDate'); }}
               className={`mt-1 w-full border rounded-lg px-3 py-2 text-slate-800 ${fieldErrors.targetDate ? 'border-rose-400 bg-rose-50' : 'border-slate-200'}`} />
             {fieldErrors.targetDate && <span id="goal-targetDate-error" className="block text-xs text-rose-600 mt-1">{fieldErrors.targetDate}</span>}
           </label>

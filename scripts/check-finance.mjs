@@ -136,7 +136,7 @@ const goalDraftContext = vm.createContext({
   draft: { ...sourceGoal, linkedAccountIds: [...sourceGoal.linkedAccountIds] }, emptyDraft: { currentAmount: '', linkedAccountIds: [] },
   accounts: [{ id: 'cash', type: 'asset', category: 'cash' }, { id: 'other', type: 'asset', category: 'cash' }],
   latestRec: { cash: 100000, other: 30000 }, changeGoalDraftSource: run('changeGoalDraftSource'),
-  isActive: run('isActive'), getAssetCategory: run('getAssetCategory'),
+  isActive: run('isActive'), getAssetCategory: run('getAssetCategory'), validMonth: run('validMonth'),
   clearFieldError: () => {}, setEditingId: () => {}, setError: () => {}, setFormOpen: () => {},
   manualAmountNotice: false, goals: [sourceGoal], editingId: 'source-goal', coverageMonthsTarget: 6,
   requestAnimationFrame: (callback) => callback(), document: { getElementById: () => ({ focus() {} }) },
@@ -186,6 +186,22 @@ assert.deepEqual(Array.from(relinkedGoal.linkedAccountIds), ['other']);
 assert.equal(goalDraftContext.fieldErrors.currentAmount, undefined);
 assert.equal(goalDraftContext.manualAmountNotice, false, '恢复自动汇总并保存后清除手动切换提示');
 assert.equal(run('resolveGoalCurrentAmount')(relinkedGoal, goalDraftContext.latestRec, goalDraftContext.accounts), 30000);
+
+let submittedGoals;
+goalDraftContext.setGoals = (update) => { submittedGoals = update(goalDraftContext.goals); };
+for (const targetDate of ['20270-03', '2030-00', '2030-13', '']) {
+  goalDraftContext.draft = { ...sourceGoal, targetDate };
+  vm.runInContext('saveGoal()', goalDraftContext);
+  assert.equal(submittedGoals, undefined, '不能将无效目标日期写入账本：' + targetDate);
+  assert.ok(goalDraftContext.fieldErrors.targetDate, '错误应定位到目标日期');
+  context.data = { ...base, goals: [{ ...sourceGoal, targetDate }] };
+  assert.throws(() => run('normalizeImportedData(data)'), /目标日期/);
+}
+goalDraftContext.draft = { ...sourceGoal, targetDate: '2030-03' };
+vm.runInContext('saveGoal()', goalDraftContext);
+assert.ok(submittedGoals, '修正月份后应允许保存目标');
+assert.equal(save(JSON.stringify({ ...base, goals: submittedGoals }), stored.raw).status, 'saved');
+assert.equal(run('loadSaved().data.goals[0].targetDate'), '2030-03', '目标保存后的真实载入校验应通过');
 
 context.goalAccounts = [
   { id: 'cash', type: 'asset', category: 'cash', active: false },
@@ -402,22 +418,37 @@ assert.equal(context.meta['2026-01'].inheritedBalanceIds[0], 'cash');
 assert.equal(context.records['2026-01'].cash, 0);
 
 const accountContext = vm.createContext({
-  accounts: [], records: { '2026-09': { oldFixed: 100 } }, latest: { month: '2026-09' },
-  monthStatus: { '2026-09': 'draft' }, monthMeta: { '2026-09': { reopenedAt: '2026-10-04', pendingAmountDrafts: { oldFixed: '-' } } },
+  accounts: [{ id: 'oldFixed', name: '房租', member: '共同', type: 'expense', isFixed: true, fixedAmount: '1500.00' }],
+  records: { '2026-08': { oldFixed: 900 }, '2026-09': { oldFixed: 1000 } }, latest: { month: '2026-09' },
+  monthStatus: { '2026-08': 'closed', '2026-09': 'draft' }, monthMeta: { '2026-09': { reopenedAt: '2026-10-04', pendingAmountDrafts: { oldFixed: '-' }, pendingAmountOriginals: { oldFixed: 1000 } } },
   cleanAccountMeta: run('cleanAccountMeta'), setModal: () => {},
 });
 accountContext.setAccounts = (update) => { accountContext.accounts = update(accountContext.accounts); };
 accountContext.setRecords = (update) => { accountContext.records = update(accountContext.records); };
 accountContext.setMonthMeta = (update) => { accountContext.monthMeta = update(accountContext.monthMeta); };
 vm.runInContext(between('  const save = (acc) => {', '  const sections =').replace('const save', 'this.saveAccount'), accountContext);
+for (const change of [{ name: '租金', fixedAmount: 1500 }, { member: '老婆' }]) {
+  accountContext.saveAccount({ ...accountContext.accounts[0], ...change });
+  assert.equal(accountContext.records['2026-09'].oldFixed, 1000, '只改名称或成员、默认额数值未变时，保留重开月份的金额');
+  assert.equal(accountContext.monthMeta['2026-09'].pendingAmountDrafts?.oldFixed, '-', '账户资料变更不能清除金额草稿');
+  assert.equal(accountContext.monthMeta['2026-09'].pendingAmountOriginals?.oldFixed, 1000, '保留草稿编辑前原值');
+}
+assert.equal(accountContext.accounts[0].name, '租金');
+assert.equal(accountContext.accounts[0].member, '老婆');
 vm.runInContext('saveAccount({ id: "newFixed", type: "expense", isFixed: true, fixedAmount: 999 })', accountContext);
 assert.equal(Object.hasOwn(accountContext.records['2026-09'], 'newFixed'), false, '后来新增的固定支出不能写回已结账后重开的月份');
 vm.runInContext('saveAccount({ id: "oldFixed", type: "expense", isFixed: true, fixedAmount: 0 })', accountContext);
 assert.equal(accountContext.records['2026-09'].oldFixed, 0, '重开月份原有固定支出仍同步最新默认值，支持零值');
 assert.equal(accountContext.monthMeta['2026-09'].pendingAmountDrafts?.oldFixed, undefined, '原有账户同步时清除旧草稿');
+assert.equal(accountContext.monthMeta['2026-09'].pendingAmountOriginals?.oldFixed, undefined);
+assert.equal(accountContext.records['2026-08'].oldFixed, 900, '修改默认金额不会改动更早月份');
 accountContext.monthMeta = {};
-vm.runInContext('saveAccount({ id: "newFixed", type: "expense", isFixed: true, fixedAmount: 999 })', accountContext);
-assert.equal(accountContext.records['2026-09'].newFixed, 999, '从未结账的最新草稿仍接纳新固定支出');
+vm.runInContext('saveAccount({ id: "draftFixed", type: "expense", isFixed: true, fixedAmount: 999 })', accountContext);
+assert.equal(accountContext.records['2026-09'].draftFixed, 999, '从未结账的最新草稿仍接纳新固定支出');
+accountContext.accounts.push({ id: 'wasVariable', type: 'expense', isFixed: false, fixedAmount: 90 });
+accountContext.records['2026-09'].wasVariable = 47;
+vm.runInContext('saveAccount({ id: "wasVariable", type: "expense", isFixed: true, fixedAmount: 90 })', accountContext);
+assert.equal(accountContext.records['2026-09'].wasVariable, 90, '从浮动转为固定时，即使默认数值相同也要同步');
 accountContext.monthStatus['2026-09'] = 'closed';
 vm.runInContext('saveAccount({ id: "oldFixed", type: "expense", isFixed: true, fixedAmount: 300 })', accountContext);
 assert.equal(accountContext.records['2026-09'].oldFixed, 0, '已结账锁定月份不被固定默认值更新');

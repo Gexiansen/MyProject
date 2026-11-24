@@ -145,6 +145,40 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     await tab.reload(); await unlock();
     assert.equal((await data()).records[secondMonth].cash, 98000);
 
+    await button('家庭目标').click(); await observe();
+    await button('编辑 验收目标').click(); await observe();
+    const goalDate = p.getByLabel('目标日期');
+    const beforeInvalidDate = await stored();
+    // 通过原生月份控件编辑并提交变更，覆盖只在刷新时才暴露的错误。
+    await goalDate.fill('20270-03'); await goalDate.press('ArrowUp');
+    await button('更新目标').click(); await observe();
+    assert.equal(await goalDate.evaluate(input => input.getAttribute('aria-invalid')), 'true');
+    assert.equal(await stored(), beforeInvalidDate, '异常年份不能改写账本');
+    await layout();
+    await goalDate.fill('2031-03'); await goalDate.press('ArrowUp');
+    await button('更新目标').click(); await observe();
+    await tab.reload(); await unlock();
+    assert.equal((await data()).goals[0].targetDate, '2031-04');
+    assert.doesNotMatch(await observe(), /本机数据读取失败/);
+
+    await openMenu('账户管理'); await button('编辑 验收支出').click(); await observe();
+    await p.getByRole('checkbox', { name: /这是固定支出/ }).check(); await observe();
+    await p.getByLabel('每月默认金额').fill('1500'); await button('保存').click(); await observe();
+    assert.equal((await data()).records[secondMonth].expense, 2000, '已结账月份不能被新默认额覆盖');
+    await openMenu('月度结账'); await selectMonth(secondMonth); await reopen();
+    if (width === 390) { await p.getByRole('button', { name: /^共同/ }).click(); await observe(); }
+    const expenseField = p.locator('[data-closing-account-id="expense"]');
+    await expenseField.fill('-'); await expenseField.press('Tab'); await observe();
+    const beforeRename = await data();
+    assert.equal(beforeRename.monthMeta[secondMonth].pendingAmountDrafts.expense, '-');
+    await openMenu('账户管理'); await button('编辑 验收支出').click(); await observe();
+    await p.getByLabel('名称', { exact: true }).fill('验收房租'); await button('保存').click(); await observe();
+    const renamed = await data();
+    assert.equal(renamed.accounts.find(account => account.id === 'expense').name, '验收房租');
+    assert.deepEqual(renamed.records, beforeRename.records, '仅更名不能覆盖实录金额');
+    assert.deepEqual(renamed.monthMeta, beforeRename.monthMeta, '仅更名不能清除金额草稿或原值');
+    await layout();
+
     const invalid = path.join(output, 'invalid.json');
     await fs.writeFile(invalid, JSON.stringify({ accounts: [], records: {}, goals: [null] }));
     const beforeInvalid = await stored();
@@ -171,7 +205,7 @@ export async function runFinanceFlows(browser, { baseUrl, password, width }) {
     assert.equal(errors.length, 0, JSON.stringify(errors));
     const screenshot = path.join(output, `finance-${width}.jpg`);
     await fs.writeFile(screenshot, await tab.screenshot({ fullPage: false }));
-    return { width, passed: ['录入结账与刷新恢复', '零支出不判断财务自由达成', '历史复核与目标快照', '旧备份差异预览与短视口确认', '导出导入与取消保护', '非法导入保护', '损坏原文保留与备份恢复'], screenshot };
+    return { width, passed: ['录入结账与刷新恢复', '零支出不判断财务自由达成', '历史复核与目标快照', '旧备份差异预览与短视口确认', '导出导入与取消保护', '非法导入保护', '损坏原文保留与备份恢复', '目标日期校验与刷新', '固定支出更名保留重开月金额和草稿'], screenshot };
   } catch (error) {
     try { await observe(); } catch {}
     throw new Error(`${error.message}\n验收页面状态：\n${lastSnapshot}`, { cause: error });
